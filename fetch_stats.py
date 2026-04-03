@@ -10,7 +10,7 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pytz import timezone
-
+print("🚀 开始执行 fetch_stats.py")
 # ---------------- 基础设置 ----------------
 load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY")

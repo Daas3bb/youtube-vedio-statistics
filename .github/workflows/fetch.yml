@@ -6,7 +6,7 @@ on:
   workflow_dispatch: {}
   push:
     paths:
-      - "../inputs/videos.csv"
+      - "inputs/videos.csv"
 
 permissions:
   contents: write
