@@ -10,7 +10,12 @@ import pandas as pd
 import requests
 from dotenv import load_dotenv
 from pytz import timezone
-print("🚀 开始执行 fetch_stats.py")
+
+CN_TZ = timezone("Asia/Shanghai")
+
+print("🚀 fetch_stats.py 被执行了！！！")
+print("🕒 执行时间（北京时间）：", datetime.now(CN_TZ).isoformat())
+
 # ---------------- 基础设置 ----------------
 load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY")
@@ -61,11 +66,17 @@ def chunk(lst: List[str], n: int):
         yield lst[i:i+n]
 
 def read_video_ids() -> List[str]:
+    print("📄 正在读取 inputs/videos.csv ...")
     if not os.path.exists(INPUT_CSV):
         print(f"❌ 未找到 {INPUT_CSV}")
         sys.exit(1)
 
     df = pd.read_csv(INPUT_CSV)
+
+    print(f"📦 总行数: {len(df)}")
+    print("📊 CSV最后10行内容：")
+    print(df.tail(10)) 
+
     # 兼容：若没有表头“video”，把第一列当 video
     if "video" not in df.columns:
         if len(df.columns) >= 1:
@@ -187,7 +198,10 @@ def main():
         merged = new_df
 
     merged.to_csv(DATA_CSV, index=False)
-    print(f"✅ Saved {len(new_df)} rows. History size: {len(merged)}")
+
+    print(f"✅ 本次抓取: {len(new_df)} 条")
+    print(f"📊 合并后总数据: {len(merged)} 条")
+    print("💾 已写入 data/history.csv")
 
 if __name__ == "__main__":
     try:
