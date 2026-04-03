@@ -5,7 +5,55 @@ import csv
 import altair as alt
 import pandas as pd
 import streamlit as st
+import requests
+import base64
+import streamlit as st
 
+GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+REPO = st.secrets["GITHUB_REPO"]
+FILE_PATH = "inputs/videos.csv"
+
+def update_github_csv(new_url):
+    api_url = f"https://api.github.com/repos/{REPO}/contents/{FILE_PATH}"
+
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    }
+
+    # 1️⃣ 获取当前文件
+    r = requests.get(api_url, headers=headers)
+    if r.status_code != 200:
+        return False, f"获取文件失败: {r.text}"
+
+    data = r.json()
+    content = base64.b64decode(data["content"]).decode("utf-8")
+    sha = data["sha"]
+
+    # 2️⃣ 防重复
+    if new_url in content:
+        return False, "该视频已存在"
+
+    # 3️⃣ 追加内容
+    new_content = content.strip() + f"\n{new_url}"
+
+    encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
+
+    # 4️⃣ 提交更新
+    payload = {
+        "message": f"Add video {new_url}",
+        "content": encoded,
+        "sha": sha
+    }
+
+    r2 = requests.put(api_url, headers=headers, json=payload)
+
+    if r2.status_code in [200, 201]:
+        return True, "✅ 已同步到 GitHub"
+    else:
+        return False, f"提交失败: {r2.text}"
+    
+    
 st.set_page_config(page_title="YouTube Tracker", layout="wide")
 
 # 可选：页面自动刷新（若未安装则自动跳过）
@@ -88,7 +136,6 @@ latest = latest.sort_values("published_at", ascending=False, na_position="last")
 # -------- 侧边筛选 --------
 with st.sidebar:
     st.write("---")
-
     # ===== 新增视频 =====
     st.subheader("➕ 新增监控视频")
 
@@ -98,32 +145,12 @@ with st.sidebar:
         if not new_url.strip():
             st.warning("请输入有效内容")
         else:
-            file_path = "inputs/videos.csv"
+            success, msg = update_github_csv(new_url)
 
-            file_exists = os.path.exists(file_path)
-
-            existing = set()
-            if file_exists:
-                try:
-                    df_exist = pd.read_csv(file_path)
-                    if "video" in df_exist.columns:
-                        existing = set(df_exist["video"].dropna().astype(str))
-                except Exception:
-                    pass
-
-            if new_url in existing:
-                st.warning("该视频已存在，无需重复添加")
+            if success:
+                st.success(msg)
             else:
-                import csv
-                with open(file_path, "a", newline="", encoding="utf-8") as f:
-                    writer = csv.writer(f)
-
-                    if not file_exists:
-                        writer.writerow(["video"])
-
-                    writer.writerow([new_url])
-
-                st.success("✅ 添加成功！请运行 fetch_stats.py 更新数据")
+                st.error(msg)
 
     st.write("---")
     st.header("筛选 & 工具")
