@@ -170,7 +170,7 @@ def main():
                     return 0
 
             row = {
-             "date": datetime.now(LA_TZ).isoformat(),
+                "date":today_la_str(),
                 "video_id": vid,
                 "views": _to_int(stats.get("viewCount")),
                 "likes": _to_int(stats.get("likeCount")),
