@@ -21,7 +21,7 @@ def update_github_csv(new_url):
         "Accept": "application/vnd.github+json"
     }
 
-    # 1️⃣ 获取当前文件
+    # 1️获取当前文件
     r = requests.get(api_url, headers=headers)
     if r.status_code != 200:
         return False, f"获取文件失败: {r.text}"
@@ -30,16 +30,16 @@ def update_github_csv(new_url):
     content = base64.b64decode(data["content"]).decode("utf-8")
     sha = data["sha"]
 
-    # 2️⃣ 防重复
+    # 2️ 防重复
     if new_url in content:
         return False, "该视频已存在"
 
-    # 3️⃣ 追加内容
+    # 3️追加内容
     new_content = content.strip() + f"\n{new_url}"
 
     encoded = base64.b64encode(new_content.encode("utf-8")).decode("utf-8")
 
-    # 4️⃣ 提交更新
+    # 4 提交更新
     payload = {
         "message": f"Add video {new_url}",
         "content": encoded,

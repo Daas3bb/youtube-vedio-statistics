@@ -2,8 +2,11 @@ name: Daily YouTube Fetch
 
 on:
   schedule:
-    - cron: "0 */2 * * *"  # 每隔 2 小时整点执行（UTC）
+    - cron: "0 */2 * * *"
   workflow_dispatch: {}
+  push:
+    paths:
+      - "inputs/videos.csv"
 
 permissions:
   contents: write
