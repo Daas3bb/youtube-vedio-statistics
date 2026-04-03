@@ -159,7 +159,7 @@ def main():
                     return 0
 
             row = {
-                "date": today_la_str(),
+             "date": datetime.now(LA_TZ).isoformat(),
                 "video_id": vid,
                 "views": _to_int(stats.get("viewCount")),
                 "likes": _to_int(stats.get("likeCount")),
@@ -177,10 +177,12 @@ def main():
     if os.path.exists(DATA_CSV) and os.path.getsize(DATA_CSV) > 0:
         old_df = pd.read_csv(DATA_CSV)
         merged = pd.concat([old_df, new_df], ignore_index=True)
+        merged["minute"] = merged["date"].str[:16]
+
         merged = (
             merged.sort_values(["video_id", "date"])
-                  .drop_duplicates(subset=["video_id", "date"], keep="last")
-        )
+          .drop_duplicates(subset=["video_id", "minute"], keep="last")
+)
     else:
         merged = new_df
 
