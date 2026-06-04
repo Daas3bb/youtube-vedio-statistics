@@ -1,0 +1,13 @@
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+venv/
+backend/.venv/
+node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+.DS_Store
+*.log
+Thumbs.db
