@@ -64,11 +64,20 @@ export default function App() {
       ]);
       setApiOk(health.api_key_configured);
       setDbOk(health.db_connected);
-      setVideos(vList);
-      setDashboard(dash);
+      setVideos(Array.isArray(vList) ? vList : []);
+      // Ensure dashboard has safe defaults
+      setDashboard(dash && typeof dash === "object" ? {
+        kpi: dash.kpi ?? { video_count: 0, monitored_with_data: 0, total_views: 0, total_likes: 0, total_comments: 0, daily_new_views: 0, like_rate: 0, comment_rate: 0 },
+        rankings: Array.isArray(dash.rankings) ? dash.rankings : [],
+        trend: Array.isArray(dash.trend) ? dash.trend : [],
+        daily_new_by_video: Array.isArray(dash.daily_new_by_video) ? dash.daily_new_by_video : [],
+        videos: Array.isArray(dash.videos) ? dash.videos : [],
+      } : null);
       if (!selectedId && vList.length) setSelectedId(vList[0].video_id);
     } catch (e) {
-      showToast("加载失败，请确认后端已启动 (uvicorn)");
+      setApiOk(false);
+      setDbOk(false);
+      showToast("后端未连接，页面以离线模式显示");
       console.error(e);
     } finally {
       setLoading(false);
@@ -87,7 +96,17 @@ export default function App() {
       return;
     }
     fetchVideoDetail(selectedId)
-      .then(setDetail)
+      .then((d) => {
+        if (d && typeof d === "object") {
+          setDetail({
+            ...d,
+            history: Array.isArray(d.history) ? d.history : [],
+            view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
+          });
+        } else {
+          setDetail(null);
+        }
+      })
       .catch(() => setDetail(null));
   }, [selectedId, dashboard]);
 

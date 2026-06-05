@@ -1,6 +1,20 @@
-import axios from "axios";
+import axios, { type AxiosResponse } from "axios";
 
 const client = axios.create({ baseURL: "/api" });
+
+/**
+ * Validate that the response is JSON, not HTML (SPA fallback).
+ * If Cloudflare serves index.html for /api routes, this catches it.
+ */
+function validateJsonResponse(res: AxiosResponse): AxiosResponse {
+  const ct = String(res.headers["content-type"] || "");
+  if (!ct.includes("application/json")) {
+    throw new Error(`后端未连接：收到 ${ct || "非 JSON"} 响应`);
+  }
+  return res;
+}
+
+client.interceptors.response.use(validateJsonResponse);
 
 export interface Video {
   video_id: string;
