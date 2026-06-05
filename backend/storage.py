@@ -1,9 +1,11 @@
-import csv
+from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
-from config import DEDUP_GRANULARITY, HISTORY_CSV, VIDEOS_CSV
+from sqlalchemy.orm import Session
+
+from config import DEDUP_GRANULARITY
+from database import HistoryRow, SessionLocal, VideoRow
 
 VIDEO_FIELDS = [
     "video_id",
@@ -25,28 +27,17 @@ HISTORY_FIELDS = [
 ]
 
 
-def _ensure_file(path: Path, fields: list[str]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if not path.exists() or path.stat().st_size == 0:
-        with path.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
-            writer.writeheader()
-
-
-def _read_csv(path: Path, fields: list[str]) -> list[dict[str, str]]:
-    _ensure_file(path, fields)
-    with path.open("r", encoding="utf-8", newline="") as f:
-        rows = list(csv.DictReader(f))
-    return [r for r in rows if any((v or "").strip() for v in r.values())]
-
-
-def _write_csv(path: Path, fields: list[str], rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: row.get(k, "") for k in fields})
+@contextmanager
+def _session() -> Iterator[Session]:
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 def bucket_time(dt: datetime, granularity: str | None = None) -> str:
@@ -56,80 +47,92 @@ def bucket_time(dt: datetime, granularity: str | None = None) -> str:
     return dt.strftime("%Y-%m-%d %H:00:00")
 
 
+def _video_to_dict(row: VideoRow) -> dict[str, str]:
+    return {
+        "video_id": row.video_id,
+        "title": row.title or "",
+        "video_url": row.video_url or "",
+        "thumbnail_url": row.thumbnail_url or "",
+        "publish_time": row.publish_time or "",
+        "channel_title": row.channel_title or "",
+        "status": row.status or "active",
+        "created_at": row.created_at or "",
+    }
+
+
+def _history_to_dict(row: HistoryRow) -> dict[str, str]:
+    return {
+        "video_id": row.video_id,
+        "snapshot_time": row.snapshot_time,
+        "view_count": str(row.view_count),
+        "like_count": str(row.like_count),
+        "comment_count": str(row.comment_count),
+        "created_at": row.created_at or "",
+    }
+
+
 def list_videos(active_only: bool = False) -> list[dict[str, str]]:
-    rows = _read_csv(VIDEOS_CSV, VIDEO_FIELDS)
-    if active_only:
-        rows = [r for r in rows if (r.get("status") or "active").lower() != "inactive"]
-    return rows
+    with _session() as session:
+        query = session.query(VideoRow).order_by(VideoRow.created_at)
+        if active_only:
+            query = query.filter(VideoRow.status != "inactive")
+        return [_video_to_dict(row) for row in query.all()]
 
 
 def get_video(video_id: str) -> dict[str, str] | None:
-    for row in list_videos():
-        if row.get("video_id") == video_id:
-            return row
-    return None
+    with _session() as session:
+        row = session.get(VideoRow, video_id)
+        return _video_to_dict(row) if row else None
 
 
 def upsert_video(video: dict[str, Any]) -> dict[str, str]:
-    rows = list_videos()
     vid = video["video_id"]
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    updated = False
-    for i, row in enumerate(rows):
-        if row.get("video_id") == vid:
-            rows[i] = {
-                **row,
-                **{k: str(v) for k, v in video.items() if k in VIDEO_FIELDS},
-                "created_at": row.get("created_at") or now,
-            }
-            updated = True
-            break
-    if not updated:
-        rows.append(
-            {
-                "video_id": vid,
-                "title": video.get("title", ""),
-                "video_url": video.get("video_url", ""),
-                "thumbnail_url": video.get("thumbnail_url", ""),
-                "publish_time": video.get("publish_time", ""),
-                "channel_title": video.get("channel_title", ""),
-                "status": video.get("status", "active"),
-                "created_at": now,
-            }
-        )
-    _write_csv(VIDEOS_CSV, VIDEO_FIELDS, rows)
-    return get_video(vid) or {}
+    with _session() as session:
+        row = session.get(VideoRow, vid)
+        if row:
+            for key in VIDEO_FIELDS:
+                if key in ("video_id", "created_at"):
+                    continue
+                if key in video:
+                    setattr(row, key, str(video[key]))
+        else:
+            row = VideoRow(
+                video_id=vid,
+                title=str(video.get("title", "")),
+                video_url=str(video.get("video_url", "")),
+                thumbnail_url=str(video.get("thumbnail_url", "")),
+                publish_time=str(video.get("publish_time", "")),
+                channel_title=str(video.get("channel_title", "")),
+                status=str(video.get("status", "active")),
+                created_at=now,
+            )
+            session.add(row)
+        session.flush()
+        return _video_to_dict(row)
 
 
 def delete_video(video_id: str) -> bool:
-    rows = list_videos()
-    new_rows = [r for r in rows if r.get("video_id") != video_id]
-    if len(new_rows) == len(rows):
-        return False
-    _write_csv(VIDEOS_CSV, VIDEO_FIELDS, new_rows)
-    return True
+    with _session() as session:
+        row = session.get(VideoRow, video_id)
+        if not row:
+            return False
+        session.delete(row)
+        return True
 
 
 def list_history(video_id: str | None = None) -> list[dict[str, str]]:
-    rows = _read_csv(HISTORY_CSV, HISTORY_FIELDS)
-    if video_id:
-        rows = [r for r in rows if r.get("video_id") == video_id]
-    return rows
+    with _session() as session:
+        query = session.query(HistoryRow).order_by(HistoryRow.snapshot_time)
+        if video_id:
+            query = query.filter(HistoryRow.video_id == video_id)
+        return [_history_to_dict(row) for row in query.all()]
 
 
 def history_dedup_keys() -> set[tuple[str, str]]:
-    keys: set[tuple[str, str]] = set()
-    for row in list_history():
-        vid = row.get("video_id", "")
-        snap = row.get("snapshot_time", "")
-        if not vid or not snap:
-            continue
-        try:
-            dt = datetime.strptime(snap, "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            continue
-        keys.add((vid, bucket_time(dt)))
-    return keys
+    with _session() as session:
+        rows = session.query(HistoryRow.video_id, HistoryRow.snapshot_bucket).all()
+        return {(vid, bucket) for vid, bucket in rows}
 
 
 def append_snapshot(
@@ -142,22 +145,27 @@ def append_snapshot(
     """Returns (written, message). Skips if same video+bucket exists."""
     dt = snapshot_time or datetime.now()
     bucket = bucket_time(dt)
-    keys = history_dedup_keys()
-    if (video_id, bucket) in keys:
-        return False, f"已存在 {video_id} 在 {bucket} 的快照，跳过重复写入"
-
     snap_str = dt.strftime("%Y-%m-%d %H:%M:%S")
     created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    rows = list_history()
-    rows.append(
-        {
-            "video_id": video_id,
-            "snapshot_time": snap_str,
-            "view_count": str(view_count),
-            "like_count": str(like_count),
-            "comment_count": str(comment_count),
-            "created_at": created,
-        }
-    )
-    _write_csv(HISTORY_CSV, HISTORY_FIELDS, rows)
+
+    with _session() as session:
+        exists = (
+            session.query(HistoryRow.id)
+            .filter(HistoryRow.video_id == video_id, HistoryRow.snapshot_bucket == bucket)
+            .first()
+        )
+        if exists:
+            return False, f"已存在 {video_id} 在 {bucket} 的快照，跳过重复写入"
+
+        session.add(
+            HistoryRow(
+                video_id=video_id,
+                snapshot_time=snap_str,
+                snapshot_bucket=bucket,
+                view_count=view_count,
+                like_count=like_count,
+                comment_count=comment_count,
+                created_at=created,
+            )
+        )
     return True, f"已写入快照 {snap_str}"

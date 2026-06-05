@@ -61,9 +61,11 @@ export interface VideoDetail {
 }
 
 export async function fetchHealth() {
-  const { data } = await client.get<{ status: string; api_key_configured: boolean }>(
-    "/health"
-  );
+  const { data } = await client.get<{
+    status: string;
+    api_key_configured: boolean;
+    db_connected: boolean;
+  }>("/health");
   return data;
 }
 
@@ -75,6 +77,29 @@ export async function fetchVideos() {
 export async function addVideo(urlOrId: string) {
   const { data } = await client.post<{ video: Video; message: string }>("/videos", {
     url_or_id: urlOrId,
+  });
+  return data;
+}
+
+export interface BatchAddResult {
+  added: number;
+  existing: number;
+  invalid: number;
+  duplicate_input: number;
+  message: string;
+  videos: Video[];
+  results: Array<{
+    input: string;
+    video_id?: string;
+    status: "added" | "exists" | "invalid" | "duplicate_input";
+    message?: string;
+    video?: Video;
+  }>;
+}
+
+export async function addVideosBatch(urlsOrIds: string[]) {
+  const { data } = await client.post<BatchAddResult>("/videos/batch", {
+    urls_or_ids: urlsOrIds,
   });
   return data;
 }

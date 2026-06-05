@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import ReactECharts from "echarts-for-react";
+import type { CallbackDataParams } from "echarts/types/dist/shared";
 import {
   addVideo,
+  addVideosBatch,
   collectAll,
   deleteVideo,
   fetchDashboard,
@@ -14,9 +16,22 @@ import {
 } from "./api";
 
 function formatNum(n: number) {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
-  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
-  return String(n);
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(3) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(3) + "K";
+  return n.toFixed(3);
+}
+
+/** 根据数据范围计算 Y 轴上下界，放大趋势变化 */
+function trendAxisBounds(values: number[]) {
+  if (!values.length) return {};
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || Math.max(max * 0.01, 1);
+  const pad = range * 0.1;
+  return {
+    min: Math.max(0, Math.floor(min - pad)),
+    max: Math.ceil(max + pad),
+  };
 }
 
 export default function App() {
@@ -25,9 +40,13 @@ export default function App() {
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [input, setInput] = useState("");
+  const [batchInput, setBatchInput] = useState("");
+  const [showBatchForm, setShowBatchForm] = useState(false);
+  const [batchAdding, setBatchAdding] = useState(false);
   const [loading, setLoading] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const [dbOk, setDbOk] = useState<boolean | null>(null);
   const [toast, setToast] = useState("");
 
   const showToast = (msg: string) => {
@@ -44,6 +63,7 @@ export default function App() {
         fetchDashboard(),
       ]);
       setApiOk(health.api_key_configured);
+      setDbOk(health.db_connected);
       setVideos(vList);
       setDashboard(dash);
       if (!selectedId && vList.length) setSelectedId(vList[0].video_id);
@@ -87,6 +107,29 @@ export default function App() {
     }
   };
 
+  const handleBatchAdd = async () => {
+    const lines = batchInput
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (!lines.length) return;
+    setBatchAdding(true);
+    try {
+      const res = await addVideosBatch(lines);
+      setBatchInput("");
+      setShowBatchForm(false);
+      const dupMsg =
+        res.duplicate_input > 0 ? `，输入重复 ${res.duplicate_input} 个` : "";
+      showToast(`${res.message}${dupMsg}`);
+      await refresh();
+      if (res.videos.length) setSelectedId(res.videos[0].video_id);
+    } catch (e: unknown) {
+      showToast(axiosMessage(e) || "批量添加失败");
+    } finally {
+      setBatchAdding(false);
+    }
+  };
+
   const handleCollect = async () => {
     setCollecting(true);
     try {
@@ -110,10 +153,13 @@ export default function App() {
   };
 
   const trendOption = dashboard
-    ? {
+    ? (() => {
+        const trendValues = dashboard.trend.map((t) => t.total_views);
+        const trendAxis = trendAxisBounds(trendValues);
+        return {
         backgroundColor: "transparent",
         tooltip: { trigger: "axis" },
-        grid: { left: 48, right: 24, top: 24, bottom: 48 },
+        grid: { left: 80, right: 24, top: 24, bottom: 48 },
         xAxis: {
           type: "category",
           data: dashboard.trend.map((t) => t.time),
@@ -121,6 +167,8 @@ export default function App() {
         },
         yAxis: {
           type: "value",
+          ...trendAxis,
+          scale: true,
           axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
           splitLine: { lineStyle: { color: "#2d3a4f" } },
         },
@@ -129,20 +177,21 @@ export default function App() {
             name: "累计播放量",
             type: "line",
             smooth: true,
-            data: dashboard.trend.map((t) => t.total_views),
+            data: trendValues,
             areaStyle: { color: "rgba(255,68,68,0.15)" },
             lineStyle: { color: "#ff4444", width: 2 },
             itemStyle: { color: "#ff4444" },
           },
         ],
-      }
+        };
+      })()
     : {};
 
   const dailyNewOption = dashboard
     ? {
         backgroundColor: "transparent",
         tooltip: { trigger: "axis" },
-        grid: { left: 48, right: 24, top: 24, bottom: 72 },
+        grid: { left: 80, right: 24, top: 24, bottom: 72 },
         xAxis: {
           type: "category",
           data: dashboard.daily_new_by_video.map((d) =>
@@ -152,7 +201,7 @@ export default function App() {
         },
         yAxis: {
           type: "value",
-          axisLabel: { color: "#8b9cb3" },
+          axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
           splitLine: { lineStyle: { color: "#2d3a4f" } },
         },
         series: [
@@ -167,40 +216,69 @@ export default function App() {
     : {};
 
   const detailViewsOption = detail
-    ? {
+    ? (() => {
+        const viewValues = detail.history.map((h) => h.views);
+        const viewAxis = trendAxisBounds(viewValues);
+        return {
         backgroundColor: "transparent",
-        tooltip: { trigger: "axis" },
+        tooltip: {
+          trigger: "axis",
+          formatter: (params: CallbackDataParams | CallbackDataParams[]) => {
+            const items = Array.isArray(params) ? params : [params];
+            const time = String(items[0]?.name ?? "");
+            let html = `时间：${time}<br/>`;
+            for (const p of items) {
+              html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
+            }
+            return html;
+          },
+        },
         legend: { data: ["播放量", "新增播放"], textStyle: { color: "#8b9cb3" } },
-        grid: { left: 48, right: 24, top: 40, bottom: 48 },
+        grid: { left: 60, right: 64, top: 40, bottom: 48 },
         xAxis: {
           type: "category",
           data: detail.history.map((h) => h.time?.slice(5, 16) || ""),
           axisLabel: { color: "#8b9cb3" },
         },
-        yAxis: {
-          type: "value",
-          axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
-          splitLine: { lineStyle: { color: "#2d3a4f" } },
-        },
+        yAxis: [
+          {
+            type: "value",
+            name: "播放量",
+            position: "left",
+            ...viewAxis,
+            scale: true,
+            axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
+            splitLine: { lineStyle: { color: "#2d3a4f" } },
+          },
+          {
+            type: "value",
+            name: "新增播放",
+            position: "right",
+            axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
+            splitLine: { show: false },
+          },
+        ],
         series: [
           {
             name: "播放量",
             type: "line",
             smooth: true,
-            data: detail.history.map((h) => h.views),
-            lineStyle: { color: "#ff4444" },
+            yAxisIndex: 0,
+            data: viewValues,
+            lineStyle: { color: "#ff4444", width: 2 },
+            itemStyle: { color: "#ff4444" },
+            areaStyle: { color: "rgba(255, 68, 68, 0.1)" },
           },
           {
             name: "新增播放",
             type: "bar",
-            data: [
-              0,
-              ...detail.view_deltas.map((d) => d.delta_views),
-            ],
-            itemStyle: { color: "#22c55e", opacity: 0.7 },
+            yAxisIndex: 1,
+            data: [0, ...detail.view_deltas.map((d) => d.delta_views)],
+            itemStyle: { color: "#22c55e", opacity: 0.75, borderRadius: [3, 3, 0, 0] },
           },
         ],
-      }
+        };
+      })()
     : {};
 
   const kpi = dashboard?.kpi;
@@ -214,6 +292,9 @@ export default function App() {
         <div className="header-actions">
           <span className={`badge ${apiOk ? "ok" : "warn"}`}>
             {apiOk === null ? "…" : apiOk ? "API Key 已配置" : "未配置 API Key"}
+          </span>
+          <span className={`badge ${dbOk ? "ok" : "warn"}`}>
+            {dbOk === null ? "…" : dbOk ? "数据库已连接" : "数据库未连接"}
           </span>
           <button
             className="btn btn-primary"
@@ -292,7 +373,42 @@ export default function App() {
           <button className="btn btn-primary" onClick={handleAdd}>
             添加视频
           </button>
+          {!showBatchForm && (
+            <button className="btn" onClick={() => setShowBatchForm(true)}>
+              批量添加
+            </button>
+          )}
         </div>
+        {showBatchForm && (
+          <div className="batch-add-form">
+            <textarea
+              placeholder="批量添加：每行一个 YouTube 链接或 Video ID"
+              value={batchInput}
+              onChange={(e) => setBatchInput(e.target.value)}
+              rows={4}
+              autoFocus
+            />
+            <div className="batch-add-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleBatchAdd}
+                disabled={batchAdding || !batchInput.trim()}
+              >
+                {batchAdding ? "添加中…" : "确认添加"}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowBatchForm(false);
+                  setBatchInput("");
+                }}
+                disabled={batchAdding}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
         <table className="video-table">
           <thead>
             <tr>

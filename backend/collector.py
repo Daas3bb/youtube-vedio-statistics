@@ -1,6 +1,6 @@
 """
 Standalone collector for CLI and GitHub Actions.
-Reads inputs/videos.csv, fetches YouTube stats, appends data/history.csv with dedup.
+Reads videos from MySQL, fetches YouTube stats, appends history snapshots with dedup.
 """
 import asyncio
 import sys
@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import YOUTUBE_API_KEY  # noqa: E402
+from database import init_db  # noqa: E402
 from storage import append_snapshot, list_videos, upsert_video  # noqa: E402
 from youtube_client import fetch_video_stats  # noqa: E402
 
@@ -18,7 +19,7 @@ from youtube_client import fetch_video_stats  # noqa: E402
 async def collect_all() -> dict:
     videos = list_videos(active_only=True)
     if not videos:
-        print("No active videos in inputs/videos.csv")
+        print("No active videos in database")
         return {"total": 0, "written": 0, "skipped": 0, "failed": 0}
 
     ids = [v["video_id"] for v in videos if v.get("video_id")]
@@ -67,6 +68,7 @@ async def collect_all() -> dict:
 
 
 def main():
+    init_db()
     result = asyncio.run(collect_all())
     sys.exit(0 if result["failed"] == 0 else 1)
 
