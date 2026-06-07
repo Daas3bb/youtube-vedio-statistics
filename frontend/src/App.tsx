@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import ReactECharts from "echarts-for-react";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import {
   clearSiteCache,
@@ -24,9 +23,14 @@ import {
 import {
   appendVideosToGithubCsv,
   downloadVideosCsv,
+  formatGithubSyncError,
+  getLatestCollectRunId,
   isGithubSyncReady,
+  triggerCollectWorkflow,
+  waitForCollectWorkflow,
 } from "./githubCsvSync";
 import { GithubSyncPanel } from "./GithubSyncPanel";
+import { LazyChart } from "./LazyChart";
 import {
   availableDateRange,
   computeDeltas,
@@ -69,6 +73,8 @@ export default function App() {
   const [batchInput, setBatchInput] = useState("");
   const [showBatchForm, setShowBatchForm] = useState(false);
   const [batchAdding, setBatchAdding] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [collecting, setCollecting] = useState(false);
   const [localVideos, setLocalVideos] = useState<Video[]>(() => loadLocalVideos());
   const [serverVideos, setServerVideos] = useState<Video[]>([]);
   const [serverVideoIds, setServerVideoIds] = useState<Set<string>>(new Set());
@@ -76,9 +82,9 @@ export default function App() {
 
   const videos = mergeVideos(serverVideos, localVideos);
 
-  const showToast = (msg: string) => {
+  const showToast = (msg: string, durationMs = 3500) => {
     setToast(msg);
-    setTimeout(() => setToast(""), 3500);
+    setTimeout(() => setToast(""), durationMs);
   };
 
   const refresh = useCallback(async () => {
@@ -93,8 +99,16 @@ export default function App() {
       setDataOk(health.data_loaded);
       setGeneratedAt(health.generated_at || "");
       const list = Array.isArray(vList) ? vList : [];
+      const serverIdSet = new Set(list.map((v) => v.video_id));
+      const syncedLocalIds = loadLocalVideos()
+        .filter((v) => serverIdSet.has(v.video_id))
+        .map((v) => v.video_id);
+      if (syncedLocalIds.length) {
+        removeLocalVideosByIds(syncedLocalIds);
+      }
       setServerVideos(list);
-      setServerVideoIds(new Set(list.map((v) => v.video_id)));
+      setServerVideoIds(serverIdSet);
+      setLocalVideos(loadLocalVideos());
       setDashboard(
         dash && typeof dash === "object"
           ? {
@@ -132,29 +146,30 @@ export default function App() {
     const sync = await appendVideosToGithubCsv(ids);
 
     if (sync.ok) {
-      removeLocalVideosByIds(ids);
-      setLocalVideos(loadLocalVideos());
       if (sync.added > 0) {
-        showToast(`已自动写入 inputs/videos.csv（${sync.added} 个），采集任务已触发`);
+        showToast(
+          `已写入 inputs/videos.csv（${sync.added} 个），列表保留「本地待采集」直到 Actions 完成`,
+          6000
+        );
         await refresh();
       } else {
-        showToast("视频已在仓库 videos.csv 中");
+        showToast("视频已在仓库 videos.csv 中，等待采集完成后显示完整数据", 5000);
       }
       return;
     }
 
     if (sync.reason === "no_token") {
       downloadVideosCsv(ids, serverVideoIds);
-      showToast("已添加（本地）。配置 GitHub Token 后可自动写入 videos.csv");
+      showToast("已添加（仅本机浏览器）。请配置 GitHub Token 以自动写入 videos.csv", 6000);
       return;
     }
 
-    showToast(`本地已添加，自动写入失败：${sync.reason}`);
+    showToast(`本地已添加，自动写入失败：${formatGithubSyncError(sync.reason)}`, 6000);
   };
 
   const handleAdd = async () => {
     const raw = input.trim();
-    if (!raw) return;
+    if (!raw || adding) return;
 
     const video = createVideoFromInput(raw);
     if (!video) {
@@ -171,16 +186,21 @@ export default function App() {
       return;
     }
 
-    const result = addLocalVideos([raw], serverVideoIds);
-    if (!result.added.length) {
-      showToast("添加失败");
-      return;
-    }
+    setAdding(true);
+    try {
+      const result = addLocalVideos([raw], serverVideoIds);
+      if (!result.added.length) {
+        showToast("添加失败");
+        return;
+      }
 
-    setLocalVideos(loadLocalVideos());
-    setInput("");
-    setSelectedId(video.video_id);
-    await persistAddedVideos(result.added);
+      setLocalVideos(loadLocalVideos());
+      setInput("");
+      setSelectedId(video.video_id);
+      await persistAddedVideos(result.added);
+    } finally {
+      setAdding(false);
+    }
   };
 
   const handleBatchAdd = async () => {
@@ -212,6 +232,58 @@ export default function App() {
     }
   };
 
+  const handleCollectNow = async () => {
+    if (!selectedId || collecting) return;
+
+    if (!githubSyncReady) {
+      showToast("请先点击「配置 GitHub 自动写入」并保存 Token（需 Actions: Read and write）", 6000);
+      return;
+    }
+
+    setCollecting(true);
+    try {
+      showToast("正在触发 GitHub Actions 采集…", 8000);
+      const previousRunId = await getLatestCollectRunId();
+
+      if (isLocalOnlyVideo(selectedId, serverVideoIds)) {
+        const sync = await appendVideosToGithubCsv([selectedId]);
+        if (!sync.ok) {
+          showToast(`无法采集：${formatGithubSyncError(sync.reason)}`, 6000);
+          return;
+        }
+      } else {
+        const triggered = await triggerCollectWorkflow();
+        if (!triggered.ok) {
+          showToast(`采集失败：${formatGithubSyncError(triggered.reason)}`, 6000);
+          return;
+        }
+      }
+
+      const result = await waitForCollectWorkflow(undefined, previousRunId, 8 * 60 * 1000, (msg) =>
+        showToast(msg, 8000)
+      );
+
+      if (!result.ok) {
+        showToast(`采集失败：${formatGithubSyncError(result.reason)}`, 6000);
+        return;
+      }
+
+      clearSiteCache();
+      await refresh();
+      const d = await fetchVideoDetail(selectedId).catch(() => null);
+      if (d) {
+        setDetail({
+          ...d,
+          history: Array.isArray(d.history) ? d.history : [],
+          view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
+        });
+      }
+      showToast("采集完成，数据已更新", 4000);
+    } finally {
+      setCollecting(false);
+    }
+  };
+
   useEffect(() => {
     refresh();
   }, [refresh]);
@@ -238,14 +310,16 @@ export default function App() {
         }
       })
       .catch(() => {
-        const v = videos.find((item) => item.video_id === selectedId);
+        const v =
+          localVideos.find((item) => item.video_id === selectedId) ??
+          serverVideos.find((item) => item.video_id === selectedId);
         if (v) {
           setDetail({ video: v, history: [], view_deltas: [] });
         } else {
           setDetail(null);
         }
       });
-  }, [selectedId, dashboard, videos]);
+  }, [selectedId, localVideos, serverVideos]);
 
   const detailHistoryAll: HistoryPoint[] = detail?.history ?? [];
   const detailDateBounds = availableDateRange(detailHistoryAll);
@@ -402,7 +476,12 @@ export default function App() {
           {generatedAt && (
             <span className="badge ok">更新于 {generatedAt.slice(0, 16)}</span>
           )}
-          <button className="btn" onClick={refresh} disabled={loading}>
+          <button
+            className="btn"
+            onClick={refresh}
+            disabled={loading}
+            title="仅重新加载已发布的静态数据，不会触发 YouTube 采集"
+          >
             刷新看板
           </button>
         </div>
@@ -455,7 +534,7 @@ export default function App() {
           <h2>播放趋势（全站汇总）</h2>
           <div className="chart-box">
             {dashboard?.trend.length ? (
-              <ReactECharts option={trendOption} style={{ height: "100%" }} />
+              <LazyChart option={trendOption} style={{ height: "100%" }} />
             ) : (
               <p className="empty">暂无历史数据</p>
             )}
@@ -465,7 +544,7 @@ export default function App() {
           <h2>今日新增播放量（按视频）</h2>
           <div className="chart-box">
             {dashboard?.daily_new_by_video.length ? (
-              <ReactECharts option={dailyNewOption} style={{ height: "100%" }} />
+              <LazyChart option={dailyNewOption} style={{ height: "100%" }} />
             ) : (
               <p className="empty">需要至少两天的快照才能计算日增量</p>
             )}
@@ -483,8 +562,8 @@ export default function App() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
           />
-          <button className="btn btn-primary" onClick={handleAdd}>
-            添加视频
+          <button className="btn btn-primary" onClick={handleAdd} disabled={adding}>
+            {adding ? "添加中…" : "添加视频"}
           </button>
           {!showBatchForm && (
             <button className="btn" onClick={() => setShowBatchForm(true)}>
@@ -615,7 +694,25 @@ export default function App() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleCollectNow}
+              disabled={!selectedId || collecting}
+              title={
+                githubSyncReady
+                  ? "触发 GitHub Actions 采集全部监控视频（约 2-5 分钟）"
+                  : "需先配置 GitHub Token（Actions: Read and write）"
+              }
+            >
+              {collecting ? "采集中…" : "立刻采集"}
+            </button>
           </div>
+          {!githubSyncReady && selectedId && (
+            <p className="detail-collect-hint">
+              「立刻采集」需先在上方配置 GitHub Token；「刷新看板」仅加载已有静态数据。
+            </p>
+          )}
 
           {detailHistoryAll.length > 0 && (
             <div className="detail-date-filter">
@@ -709,7 +806,7 @@ export default function App() {
           )}
           <div className="chart-box">
             {detailHistoryFiltered.length ? (
-              <ReactECharts option={detailViewsOption} style={{ height: "100%" }} />
+              <LazyChart option={detailViewsOption} style={{ height: "100%" }} />
             ) : detailHistoryAll.length ? (
               <p className="empty">所选日期范围内暂无快照数据</p>
             ) : (

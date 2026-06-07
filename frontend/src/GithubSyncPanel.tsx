@@ -30,7 +30,8 @@ export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
         <div className="github-sync-form">
           <p className="github-sync-hint">
             配置后，添加视频将自动写入仓库 <code>inputs/videos.csv</code> 并触发采集。
-            Token 仅保存在本机浏览器，需勾选 <strong>Contents: Read and write</strong> 权限。
+            Token 仅保存在本机浏览器，需勾选 <strong>Contents: Read and write</strong> 与{" "}
+            <strong>Actions: Read and write</strong>（用于「立刻采集」）。
             详细图文步骤见仓库 <code>README.md</code>「添加监控视频 → 方式 A」。
             {" "}
             <a
@@ -56,7 +57,7 @@ export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
               <input
                 value={settings.repo}
                 onChange={(e) => setSettings({ ...settings, repo: e.target.value.trim() })}
-                placeholder="KOL-video-monitor-system"
+                placeholder="youtube-vedio-statistics"
               />
             </label>
             <label>
@@ -68,7 +69,7 @@ export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
               />
             </label>
             <label className="span-2">
-              GitHub Token（Personal Access Token）
+              GitHub Token（Personal Access Token，形如 github_pat_… 或 ghp_…，不是 YouTube API Key）
               <input
                 type="password"
                 value={settings.token}

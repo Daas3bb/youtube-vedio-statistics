@@ -336,7 +336,17 @@ input {
 }
 
 .detail-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
   margin-bottom: 16px;
+}
+
+.detail-collect-hint {
+  margin: -8px 0 16px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .detail-select select {

@@ -286,6 +286,41 @@ Settings → Pages → Source 选 **GitHub Actions**
 
 也可手动触发：**Actions → Collect and Deploy Static Site → Run workflow**
 
+### 5. Actions 报错排查（git rebase / unrelated histories）
+
+若日志里出现类似内容：
+
+```
+git commit -m 'chore: daily fetch (auto)'
+git rebase origin/main
+CONFLICT in data/history.csv
+fatal: refusing to merge unrelated histories
+```
+
+**原因：**
+
+1. 跑的是**旧版或自定义 workflow**（提交 `data/history.csv` 并 rebase），不是当前的 `Collect and Deploy Static Site`
+2. 远程 `main` 曾被 **force push**，与 Actions 里的 git 历史不一致（unrelated histories）
+3. 两个不同项目的历史被合进同一仓库，rebase 时出现 585 个冲突提交
+
+**处理步骤：**
+
+1. 打开 **Actions**，确认失败的是哪个 workflow 名称
+2. 在 `.github/workflows/` 中**删除**旧 workflow（只保留 `collect.yml`）
+3. 确认 `collect.yml` 的提交步骤是写入 `data/store.json`（不是只写 `history.csv`）
+4. 重新 **Run workflow → Collect and Deploy Static Site**
+
+若仍失败，在本地用干净代码覆盖远程 main（慎用，会重写远程历史）：
+
+```powershell
+cd D:\GithubFile\KOL-video-monitor-system
+git checkout main
+git pull origin main
+git push origin main
+```
+
+然后只在 Actions 里手动运行 **Collect and Deploy Static Site**。
+
 ---
 
 ## 可部署的平台

@@ -74,7 +74,7 @@ def main() -> int:
     thumb_count = _apply_local_thumbnails(payload)
     STATIC_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with STATIC_OUTPUT.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
 
     kpi = payload["dashboard"]["kpi"]
     print(
