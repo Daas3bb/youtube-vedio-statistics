@@ -349,6 +349,11 @@ input {
   color: var(--muted);
 }
 
+.live-tag {
+  color: #22c55e;
+  font-size: 0.75rem;
+}
+
 .detail-select select {
   width: 100%;
   max-width: 480px;
@@ -410,6 +415,26 @@ input {
   margin-bottom: 14px;
 }
 
+.config-panels-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.config-panels-row .github-sync-panel {
+  margin-bottom: 0;
+  flex: 1 1 240px;
+}
+
+.video-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
 .github-sync-form {
   margin-top: 12px;
   padding: 14px;
@@ -423,6 +448,18 @@ input {
   color: var(--muted);
   margin-bottom: 12px;
   line-height: 1.5;
+}
+
+.github-test-result {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text);
 }
 
 .github-sync-grid {

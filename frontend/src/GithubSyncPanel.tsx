@@ -4,6 +4,7 @@ import {
   isGithubSyncReady,
   loadGithubSettings,
   saveGithubSettings,
+  verifyGithubSettings,
   type GithubSyncSettings,
 } from "./githubCsvSync";
 
@@ -14,25 +15,46 @@ interface GithubSyncPanelProps {
 export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<GithubSyncSettings>(() => loadGithubSettings());
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string[] | null>(null);
   const ready = isGithubSyncReady(settings);
 
   const save = () => {
     saveGithubSettings(settings);
+    setTestResult(null);
     onSaved?.();
+  };
+
+  const testConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await verifyGithubSettings(settings);
+      setTestResult(result.messages);
+      if (!result.ok) {
+        setTestResult((prev) => [
+          ...(prev ?? []),
+          "",
+          "若使用 Classic Token，需勾选 repo；Fine-grained 需 Contents + Actions 均为 Read and write。",
+        ]);
+      }
+    } catch (e) {
+      setTestResult([`测试失败：${e instanceof Error ? e.message : String(e)}`]);
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
     <div className="github-sync-panel">
       <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
-        {ready ? "GitHub 同步已配置 ✓" : "配置 GitHub 自动写入"}
+        {ready ? "GitHub 同步已配置 ✓" : "GitHub 同步"}
       </button>
       {open && (
         <div className="github-sync-form">
           <p className="github-sync-hint">
             配置后，添加视频将自动写入仓库 <code>inputs/videos.csv</code> 并触发采集。
-            Token 仅保存在本机浏览器，需勾选 <strong>Contents: Read and write</strong> 与{" "}
-            <strong>Actions: Read and write</strong>（用于「立刻采集」）。
-            详细图文步骤见仓库 <code>README.md</code>「添加监控视频 → 方式 A」。
+            Token 仅保存在本机浏览器，需勾选 <strong>Contents: Read and write</strong>（写入 videos.csv）。
             {" "}
             <a
               href="https://github.com/settings/personal-access-tokens/new"
@@ -82,14 +104,23 @@ export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
             <button type="button" className="btn btn-primary" onClick={save}>
               保存配置
             </button>
+            <button type="button" className="btn" onClick={testConnection} disabled={testing}>
+              {testing ? "测试中…" : "测试连接"}
+            </button>
             <button
               type="button"
               className="btn"
-              onClick={() => setSettings(defaultGithubSettings())}
+              onClick={() => {
+                setSettings(defaultGithubSettings());
+                setTestResult(null);
+              }}
             >
               重置
             </button>
           </div>
+          {testResult && (
+            <pre className="github-test-result">{testResult.join("\n")}</pre>
+          )}
         </div>
       )}
     </div>

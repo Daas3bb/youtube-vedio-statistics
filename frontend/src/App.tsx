@@ -15,22 +15,27 @@ import {
   addLocalVideos,
   BATCH_INPUT_PLACEHOLDER,
   createVideoFromInput,
-  isLocalOnlyVideo,
   loadLocalVideos,
+  markGithubPendingIds,
   mergeVideos,
   removeLocalVideosByIds,
+  loadGithubPendingIds,
+  clearGithubPendingIds,
+  updateLocalVideoMetadata,
+  videoSyncLabel,
 } from "./localVideos";
 import {
   appendVideosToGithubCsv,
   downloadVideosCsv,
   formatGithubSyncError,
-  getLatestCollectRunId,
   isGithubSyncReady,
-  triggerCollectWorkflow,
-  waitForCollectWorkflow,
 } from "./githubCsvSync";
 import { GithubSyncPanel } from "./GithubSyncPanel";
+import { YoutubeApiPanel } from "./YoutubeApiPanel";
 import { LazyChart } from "./LazyChart";
+import { appendLocalSnapshot, buildMergedDetail } from "./localSnapshots";
+import { fetchYoutubeVideoStats } from "./youtubeCollect";
+import { isYoutubeApiReady, loadYoutubeApiKey } from "./youtubeSettings";
 import {
   availableDateRange,
   computeDeltas,
@@ -75,10 +80,16 @@ export default function App() {
   const [batchAdding, setBatchAdding] = useState(false);
   const [adding, setAdding] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [localVideos, setLocalVideos] = useState<Video[]>(() => loadLocalVideos());
   const [serverVideos, setServerVideos] = useState<Video[]>([]);
   const [serverVideoIds, setServerVideoIds] = useState<Set<string>>(new Set());
   const [githubSyncReady, setGithubSyncReady] = useState(() => isGithubSyncReady());
+  const [youtubeApiReady, setYoutubeApiReady] = useState(() => isYoutubeApiReady());
+  const [githubPendingIds, setGithubPendingIds] = useState<Set<string>>(() => loadGithubPendingIds());
+  const [liveStats, setLiveStats] = useState<
+    Record<string, { view_count: number; like_count: number; comment_count: number; time: string }>
+  >({});
 
   const videos = mergeVideos(serverVideos, localVideos);
 
@@ -106,6 +117,9 @@ export default function App() {
       if (syncedLocalIds.length) {
         removeLocalVideosByIds(syncedLocalIds);
       }
+      const pendingCleared = [...loadGithubPendingIds()].filter((id) => serverIdSet.has(id));
+      if (pendingCleared.length) clearGithubPendingIds(pendingCleared);
+      setGithubPendingIds(loadGithubPendingIds());
       setServerVideos(list);
       setServerVideoIds(serverIdSet);
       setLocalVideos(loadLocalVideos());
@@ -141,30 +155,63 @@ export default function App() {
     }
   }, []);
 
-  const persistAddedVideos = async (added: Video[]) => {
-    const ids = added.map((v) => v.video_id);
+  const syncVideosToGithub = async (
+    ids: string[]
+  ): Promise<"ok" | "no_token" | "failed" | "skipped"> => {
+    if (!ids.length) return "skipped";
+
+    if (!githubSyncReady) {
+      showToast("请先点击「GitHub 同步」配置 Token 并保存", 6000);
+      return "no_token";
+    }
+
     const sync = await appendVideosToGithubCsv(ids);
 
     if (sync.ok) {
+      markGithubPendingIds(ids);
+      setGithubPendingIds(loadGithubPendingIds());
       if (sync.added > 0) {
-        showToast(
-          `已写入 inputs/videos.csv（${sync.added} 个），列表保留「本地待采集」直到 Actions 完成`,
-          6000
-        );
-        await refresh();
+        showToast(`已写入 inputs/videos.csv（${sync.added} 个），Actions 每 2 小时自动同步`, 6000);
       } else {
-        showToast("视频已在仓库 videos.csv 中，等待采集完成后显示完整数据", 5000);
+        showToast("视频已在 videos.csv 中", 5000);
       }
-      return;
+      await refresh();
+      return "ok";
     }
 
     if (sync.reason === "no_token") {
-      downloadVideosCsv(ids, serverVideoIds);
-      showToast("已添加（仅本机浏览器）。请配置 GitHub Token 以自动写入 videos.csv", 6000);
-      return;
+      showToast("未配置 GitHub Token，请先保存 GitHub 同步配置", 6000);
+      return "no_token";
     }
 
-    showToast(`本地已添加，自动写入失败：${formatGithubSyncError(sync.reason)}`, 6000);
+    showToast(`同步失败：${formatGithubSyncError(sync.reason)}`, 6000);
+    clearGithubPendingIds(ids);
+    setGithubPendingIds(loadGithubPendingIds());
+    return "failed";
+  };
+
+  const persistAddedVideos = async (added: Video[]) => {
+    const ids = added.map((v) => v.video_id);
+    if (!githubSyncReady) {
+      downloadVideosCsv(ids, serverVideoIds);
+      showToast("已添加（仅本机）。配置 GitHub 同步后点「同步 GitHub」", 6000);
+      return;
+    }
+    await syncVideosToGithub(ids);
+  };
+
+  const handleSyncToGithub = async (videoId: string) => {
+    if (syncingIds.has(videoId)) return;
+    setSyncingIds((prev) => new Set(prev).add(videoId));
+    try {
+      await syncVideosToGithub([videoId]);
+    } finally {
+      setSyncingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+    }
   };
 
   const handleAdd = async () => {
@@ -235,50 +282,62 @@ export default function App() {
   const handleCollectNow = async () => {
     if (!selectedId || collecting) return;
 
-    if (!githubSyncReady) {
-      showToast("请先点击「配置 GitHub 自动写入」并保存 Token（需 Actions: Read and write）", 6000);
+    const apiKey = loadYoutubeApiKey();
+    if (!apiKey) {
+      showToast("请先点击「配置 YouTube 即时采集」并保存 API Key（AIzaSy…）", 6000);
       return;
     }
 
     setCollecting(true);
     try {
-      showToast("正在触发 GitHub Actions 采集…", 8000);
-      const previousRunId = await getLatestCollectRunId();
-
-      if (isLocalOnlyVideo(selectedId, serverVideoIds)) {
-        const sync = await appendVideosToGithubCsv([selectedId]);
-        if (!sync.ok) {
-          showToast(`无法采集：${formatGithubSyncError(sync.reason)}`, 6000);
-          return;
-        }
-      } else {
-        const triggered = await triggerCollectWorkflow();
-        if (!triggered.ok) {
-          showToast(`采集失败：${formatGithubSyncError(triggered.reason)}`, 6000);
-          return;
-        }
-      }
-
-      const result = await waitForCollectWorkflow(undefined, previousRunId, 8 * 60 * 1000, (msg) =>
-        showToast(msg, 8000)
-      );
-
-      if (!result.ok) {
-        showToast(`采集失败：${formatGithubSyncError(result.reason)}`, 6000);
+      showToast("正在请求 YouTube API…", 5000);
+      const statsMap = await fetchYoutubeVideoStats([selectedId], apiKey);
+      const stats = statsMap[selectedId];
+      if (!stats) {
+        showToast("YouTube 未返回该视频数据，请检查 Video ID 是否有效", 6000);
         return;
       }
 
-      clearSiteCache();
-      await refresh();
-      const d = await fetchVideoDetail(selectedId).catch(() => null);
-      if (d) {
-        setDetail({
-          ...d,
-          history: Array.isArray(d.history) ? d.history : [],
-          view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
-        });
-      }
-      showToast("采集完成，数据已更新", 4000);
+      appendLocalSnapshot(stats);
+      updateLocalVideoMetadata(selectedId, {
+        title: stats.title,
+        channel_title: stats.channel_title,
+        thumbnail_url: stats.thumbnail_url,
+        publish_time: stats.publish_time,
+        status: "active",
+      });
+      setLocalVideos(loadLocalVideos());
+      setLiveStats((prev) => ({
+        ...prev,
+        [selectedId]: {
+          view_count: stats.view_count,
+          like_count: stats.like_count,
+          comment_count: stats.comment_count,
+          time: new Date().toISOString().slice(0, 16).replace("T", " "),
+        },
+      }));
+
+      const videoMeta =
+        videos.find((v) => v.video_id === selectedId) ??
+        ({
+          video_id: selectedId,
+          title: stats.title,
+          video_url: `https://www.youtube.com/watch?v=${selectedId}`,
+          thumbnail_url: stats.thumbnail_url,
+          publish_time: stats.publish_time,
+          channel_title: stats.channel_title,
+          status: "active",
+          created_at: "",
+        } as Video);
+
+      const serverDetail = await fetchVideoDetail(selectedId).catch(() => null);
+      setDetail(buildMergedDetail(selectedId, serverDetail, videoMeta, stats));
+      showToast(
+        `已更新：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞（本机快照，Actions 每 2 小时同步云端）`,
+        6000
+      );
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "采集失败", 8000);
     } finally {
       setCollecting(false);
     }
@@ -299,7 +358,24 @@ export default function App() {
     setDetailDateTo("");
     fetchVideoDetail(selectedId)
       .then((d) => {
-        if (d && typeof d === "object") {
+        const videoMeta =
+          localVideos.find((item) => item.video_id === selectedId) ??
+          serverVideos.find((item) => item.video_id === selectedId);
+        if (videoMeta) {
+          setDetail(
+            buildMergedDetail(
+              selectedId,
+              d && typeof d === "object"
+                ? {
+                    ...d,
+                    history: Array.isArray(d.history) ? d.history : [],
+                    view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
+                  }
+                : null,
+              videoMeta
+            )
+          );
+        } else if (d && typeof d === "object") {
           setDetail({
             ...d,
             history: Array.isArray(d.history) ? d.history : [],
@@ -314,7 +390,7 @@ export default function App() {
           localVideos.find((item) => item.video_id === selectedId) ??
           serverVideos.find((item) => item.video_id === selectedId);
         if (v) {
-          setDetail({ video: v, history: [], view_deltas: [] });
+          setDetail(buildMergedDetail(selectedId, null, v));
         } else {
           setDetail(null);
         }
@@ -488,16 +564,10 @@ export default function App() {
       </header>
 
       <div className="static-notice">
-        {githubSyncReady ? (
-          <>
-            已启用 GitHub 自动同步：添加视频后将写入 <code>inputs/videos.csv</code> 并触发采集。
-          </>
-        ) : (
-          <>
-            添加视频后请先点击「配置 GitHub 自动写入」绑定 Token，即可自动更新{" "}
-            <code>inputs/videos.csv</code>；未配置时仅保存在本机并下载 CSV 片段。
-          </>
-        )}
+        「立刻采集」直接请求 YouTube API（需配置 API Key）；GitHub Actions 仅每 2 小时同步云端数据。
+        {githubSyncReady
+          ? " 已启用 GitHub 同步：添加视频会写入 inputs/videos.csv。"
+          : " 添加视频请先配置 GitHub Token 以写入 videos.csv。"}
       </div>
 
       {kpi && (
@@ -554,7 +624,10 @@ export default function App() {
 
       <section className="section">
         <h2>视频列表管理</h2>
-        <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
+        <div className="config-panels-row">
+          <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
+          <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
+        </div>
         <div className="add-form">
           <input
             placeholder="粘贴 YouTube 链接或 11 位 Video ID"
@@ -614,7 +687,11 @@ export default function App() {
           <tbody>
             {videos.map((v) => {
               const rank = dashboard?.rankings.find((r) => r.video_id === v.video_id);
-              const isLocal = isLocalOnlyVideo(v.video_id, serverVideoIds);
+              const live = liveStats[v.video_id];
+              const syncLabel = videoSyncLabel(v.video_id, serverVideoIds, githubPendingIds);
+              const isLocal = Boolean(syncLabel);
+              const needsGithubSync = !serverVideoIds.has(v.video_id);
+              const isSyncing = syncingIds.has(v.video_id);
               return (
                 <tr key={v.video_id}>
                   <td>
@@ -629,16 +706,18 @@ export default function App() {
                     >
                       {v.title || v.video_id}
                     </a>
-                    {isLocal && <span className="local-badge">本地待采集</span>}
-                    {rank && (
+                    {syncLabel && <span className="local-badge">{syncLabel}</span>}
+                    {(live || rank) && (
                       <div className="rank-meta">
-                        {formatNum(rank.view_count)} 播放 · {formatNum(rank.like_count)} 赞
+                        {formatNum(live?.view_count ?? rank?.view_count ?? 0)} 播放 ·{" "}
+                        {formatNum(live?.like_count ?? rank?.like_count ?? 0)} 赞
+                        {live && <span className="live-tag"> · 即时</span>}
                       </div>
                     )}
                   </td>
                   <td>{v.channel_title || "—"}</td>
                   <td>{isLocal ? "pending" : v.status}</td>
-                  <td>
+                  <td className="video-actions">
                     <button
                       className="btn"
                       style={{ padding: "4px 10px", fontSize: "0.8rem" }}
@@ -646,6 +725,17 @@ export default function App() {
                     >
                       详情
                     </button>
+                    {needsGithubSync && (
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+                        onClick={() => handleSyncToGithub(v.video_id)}
+                        disabled={isSyncing}
+                        title="写入 GitHub inputs/videos.csv"
+                      >
+                        {isSyncing ? "同步中…" : githubPendingIds.has(v.video_id) ? "重试同步" : "同步 GitHub"}
+                      </button>
+                    )}
                   </td>
                 </tr>
               );
@@ -700,17 +790,17 @@ export default function App() {
               onClick={handleCollectNow}
               disabled={!selectedId || collecting}
               title={
-                githubSyncReady
-                  ? "触发 GitHub Actions 采集全部监控视频（约 2-5 分钟）"
-                  : "需先配置 GitHub Token（Actions: Read and write）"
+                youtubeApiReady
+                  ? "直接请求 YouTube API 获取最新播放数据（本机快照）"
+                  : "需先配置 YouTube API Key"
               }
             >
               {collecting ? "采集中…" : "立刻采集"}
             </button>
           </div>
-          {!githubSyncReady && selectedId && (
+          {!youtubeApiReady && selectedId && (
             <p className="detail-collect-hint">
-              「立刻采集」需先在上方配置 GitHub Token；「刷新看板」仅加载已有静态数据。
+              「立刻采集」需先配置 YouTube API Key；GitHub Pages 线上版受 CORS 限制，请用本地 npm run dev。
             </p>
           )}
 

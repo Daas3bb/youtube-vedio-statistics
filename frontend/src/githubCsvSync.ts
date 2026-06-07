@@ -142,18 +142,36 @@ export async function waitForCollectWorkflow(
   settings: GithubSyncSettings = loadGithubSettings(),
   previousRunId: number | null = null,
   timeoutMs = 8 * 60 * 1000,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  dispatchedAfterMs = Date.now()
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (!isGithubSyncReady(settings)) {
     return { ok: false, reason: "no_token" };
   }
 
+  type WorkflowRun = {
+    id: number;
+    status: string;
+    conclusion: string | null;
+    created_at?: string;
+  };
+
+  const isNewRun = (run: WorkflowRun): boolean => {
+    if (previousRunId != null && run.id > previousRunId) return true;
+    if (run.created_at) {
+      const created = Date.parse(run.created_at);
+      if (!Number.isNaN(created) && created >= dispatchedAfterMs - 15_000) return true;
+    }
+    return false;
+  };
+
   const deadline = Date.now() + timeoutMs;
-  await sleep(2500);
+  const waitStartedMs = Date.now();
+  await sleep(3000);
 
   while (Date.now() < deadline) {
     const res = await fetch(
-      githubRepoUrl(settings, "actions/workflows/collect.yml/runs?per_page=5"),
+      githubRepoUrl(settings, "actions/workflows/collect.yml/runs?per_page=8"),
       { headers: githubAuthHeaders(settings) }
     );
     if (!res.ok) {
@@ -161,27 +179,33 @@ export async function waitForCollectWorkflow(
       return { ok: false, reason: `poll_failed:${res.status}:${err.slice(0, 80)}` };
     }
 
-    const data = (await res.json()) as {
-      workflow_runs?: Array<{
-        id: number;
-        status: string;
-        conclusion: string | null;
-      }>;
-    };
+    const data = (await res.json()) as { workflow_runs?: WorkflowRun[] };
     const runs = data.workflow_runs ?? [];
+    const newRuns = runs.filter(isNewRun);
     const target =
-      runs.find((run) => previousRunId == null || run.id > previousRunId) ?? runs[0];
+      newRuns.find((run) => run.status !== "completed") ??
+      newRuns.find((run) => run.status === "completed");
 
-    if (target) {
-      if (target.status === "completed") {
-        if (target.conclusion === "success") return { ok: true };
-        return { ok: false, reason: `workflow_${target.conclusion || "failed"}` };
+    const waitedSec = Math.floor((Date.now() - waitStartedMs) / 1000);
+
+    if (!target) {
+      if (waitedSec >= 45 && waitedSec % 15 < 5) {
+        onProgress?.(
+          `等待采集任务启动（已 ${waitedSec}s）…若持续无响应，请到 GitHub 仓库 Actions 页查看是否有排队任务`
+        );
+      } else {
+        onProgress?.(`等待采集任务启动（已 ${waitedSec}s）…`);
       }
-      onProgress?.(`GitHub Actions 运行中（${target.status}）…`);
-    } else {
-      onProgress?.("等待采集任务启动…");
+      await sleep(5000);
+      continue;
     }
 
+    if (target.status === "completed") {
+      if (target.conclusion === "success") return { ok: true };
+      return { ok: false, reason: `workflow_${target.conclusion || "failed"}` };
+    }
+
+    onProgress?.(`GitHub Actions 运行中（${target.status}）…`);
     await sleep(5000);
   }
 
@@ -209,56 +233,107 @@ export async function appendVideosToGithubCsv(
     return { ok: false, reason: "no_token" };
   }
 
-  const res = await githubFetch(settings, CSV_PATH);
-  if (res.status === 404) {
-    return { ok: false, reason: "csv_not_found" };
-  }
-  if (!res.ok) {
-    const err = await res.text();
-    return { ok: false, reason: `read_failed:${res.status}:${err.slice(0, 120)}` };
-  }
+  const maxAttempts = 4;
 
-  const payload = (await res.json()) as { content?: string; sha?: string };
-  if (!payload.content || !payload.sha) {
-    return { ok: false, reason: "invalid_csv_payload" };
-  }
-
-  const currentText = base64ToUtf8(payload.content.replace(/\n/g, ""));
-  const existingIds = parseVideoIdsFromCsv(currentText);
-  const newIds = videoIds.filter((id) => !existingIds.has(id));
-  if (!newIds.length) {
-    return { ok: true, added: 0 };
-  }
-
-  const suffix = currentText.endsWith("\n") || !currentText ? "" : "\n";
-  const appended = newIds.map((id) => toCsvLine(id)).join("\n");
-  const nextText = `${currentText}${suffix}${appended}\n`;
-
-  const putRes = await fetch(
-    `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/${CSV_PATH}`,
-    {
-      method: "PUT",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${settings.token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        message: `feat: add ${newIds.length} video(s) via dashboard`,
-        content: utf8ToBase64(nextText),
-        sha: payload.sha,
-        branch: settings.branch,
-      }),
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await githubFetch(settings, CSV_PATH);
+    if (res.status === 404) {
+      return { ok: false, reason: "csv_not_found" };
     }
-  );
+    if (!res.ok) {
+      const err = await res.text();
+      return { ok: false, reason: `read_failed:${res.status}:${err.slice(0, 120)}` };
+    }
 
-  if (!putRes.ok) {
+    const payload = (await res.json()) as { content?: string; sha?: string };
+    if (!payload.content || !payload.sha) {
+      return { ok: false, reason: "invalid_csv_payload" };
+    }
+
+    const currentText = base64ToUtf8(payload.content.replace(/\n/g, ""));
+    const existingIds = parseVideoIdsFromCsv(currentText);
+    const newIds = videoIds.filter((id) => !existingIds.has(id));
+    if (!newIds.length) {
+      return { ok: true, added: 0 };
+    }
+
+    const suffix = currentText.endsWith("\n") || !currentText ? "" : "\n";
+    const appended = newIds.map((id) => toCsvLine(id)).join("\n");
+    const nextText = `${currentText}${suffix}${appended}\n`;
+
+    const putRes = await fetch(
+      `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/${CSV_PATH}`,
+      {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${settings.token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: `feat: add ${newIds.length} video(s) via dashboard`,
+          content: utf8ToBase64(nextText),
+          sha: payload.sha,
+          branch: settings.branch,
+        }),
+      }
+    );
+
+    if (putRes.ok) {
+      return { ok: true, added: newIds.length };
+    }
+
     const err = await putRes.text();
+    if (putRes.status === 409 && attempt < maxAttempts) {
+      await sleep(600 * attempt);
+      continue;
+    }
+
     return { ok: false, reason: `write_failed:${putRes.status}:${err.slice(0, 120)}` };
   }
 
-  return { ok: true, added: newIds.length };
+  return { ok: false, reason: "write_failed:409:sha_conflict_after_retries" };
+}
+
+export async function verifyGithubSettings(
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: boolean; messages: string[] }> {
+  const messages: string[] = [];
+  if (!isGithubSyncReady(settings)) {
+    return { ok: false, messages: ["请先填写用户名、仓库名、分支和 Token"] };
+  }
+
+  if (settings.token.startsWith("AIzaSy")) {
+    return {
+      ok: false,
+      messages: ["当前填的是 YouTube API Key（AIzaSy…），请改用 GitHub Personal Access Token（github_pat_… 或 ghp_…）"],
+    };
+  }
+
+  const csvRes = await githubFetch(settings, CSV_PATH);
+  if (csvRes.status === 401) messages.push("✗ Token 无效或已过期");
+  else if (csvRes.status === 403) messages.push("✗ 无法读取 videos.csv（需 Contents: Read and write，且 Token 已授权本仓库）");
+  else if (csvRes.status === 404) messages.push("✗ 找不到 inputs/videos.csv，请检查仓库名/分支");
+  else if (csvRes.ok) messages.push("✓ 可读写 inputs/videos.csv");
+  else messages.push(`✗ 读取 CSV 失败（HTTP ${csvRes.status}）`);
+
+  const wfRes = await fetch(githubRepoUrl(settings, "actions/workflows/collect.yml"), {
+    headers: githubAuthHeaders(settings),
+  });
+  if (wfRes.status === 403) messages.push("✗ 无法访问 Actions（需 Actions: Read and write）");
+  else if (wfRes.status === 404) messages.push("✗ 找不到 .github/workflows/collect.yml");
+  else if (wfRes.ok) messages.push("✓ 可访问 collect.yml 工作流");
+
+  const runsRes = await fetch(
+    githubRepoUrl(settings, "actions/workflows/collect.yml/runs?per_page=1"),
+    { headers: githubAuthHeaders(settings) }
+  );
+  if (runsRes.status === 403) messages.push("✗ 无法查看 Actions 运行记录");
+  else if (runsRes.ok) messages.push("✓ 可查看 Actions 运行记录（支持「立刻采集」）");
+
+  const ok = csvRes.ok && wfRes.ok && runsRes.ok;
+  return { ok, messages };
 }
 
 export function downloadVideosCsv(videoIds: string[], existingIds: Set<string> = new Set()): void {
@@ -287,15 +362,26 @@ export function buildCsvAppendSnippet(videoIds: string[]): string {
 export function formatGithubSyncError(reason: string): string {
   if (reason === "no_token") return "未配置 GitHub Token";
   if (reason === "csv_not_found") return "仓库中找不到 inputs/videos.csv";
-  if (reason === "timeout") return "采集超时，请稍后在 Actions 页查看或手动刷新看板";
+  if (reason === "timeout") {
+    return "等待超时：Actions 未在 10 分钟内启动或完成。请到仓库 Actions 页查看是否有排队/失败任务，并确认 Token 有 Actions: Read and write";
+  }
   if (reason.startsWith("dispatch_failed:403")) {
     return "Token 无 Actions 权限，请勾选 Actions: Read and write";
   }
   if (reason.startsWith("dispatch_failed:404")) return "找不到 collect.yml 工作流";
+  if (reason.startsWith("write_failed:409")) {
+    return "videos.csv 已被其他人/Actions 更新（版本冲突），请稍后重试「同步 GitHub」";
+  }
   if (reason.startsWith("write_failed:403")) return "Token 无写入权限，请勾选 Contents: Read and write";
   if (reason.startsWith("write_failed:401")) return "Token 无效或已过期";
   if (reason.startsWith("read_failed:404")) return "仓库/分支/文件路径不正确";
-  if (reason.startsWith("workflow_")) return `采集任务失败（${reason.replace("workflow_", "")}）`;
+  if (reason.startsWith("workflow_")) {
+    const detail = reason.replace("workflow_", "");
+    if (detail === "failure") {
+      return "采集任务在 GitHub Actions 中失败，请到仓库 Actions 页查看日志（常见原因：未配置 YOUTUBE_API_KEY Secret，或 git push 冲突）";
+    }
+    return `采集任务失败（${detail}）`;
+  }
   return reason;
 }
 

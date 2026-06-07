@@ -1,6 +1,7 @@
 import type { Video } from "./api";
 
 const LS_KEY = "kol-local-videos";
+const GITHUB_PENDING_KEY = "kol-github-pending-ids";
 
 const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 const URL_PATTERNS = [
@@ -122,4 +123,49 @@ export function removeLocalVideosByIds(videoIds: string[]): void {
   const drop = new Set(videoIds);
   const next = loadLocalVideos().filter((v) => !drop.has(v.video_id));
   saveLocalVideos(next);
+  clearGithubPendingIds(videoIds);
+}
+
+export function loadGithubPendingIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(GITHUB_PENDING_KEY);
+    const ids = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(ids.filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+export function markGithubPendingIds(videoIds: string[]): void {
+  if (!videoIds.length) return;
+  const pending = loadGithubPendingIds();
+  videoIds.forEach((id) => pending.add(id));
+  localStorage.setItem(GITHUB_PENDING_KEY, JSON.stringify([...pending]));
+}
+
+export function clearGithubPendingIds(videoIds: string[]): void {
+  if (!videoIds.length) return;
+  const drop = new Set(videoIds);
+  const next = [...loadGithubPendingIds()].filter((id) => !drop.has(id));
+  localStorage.setItem(GITHUB_PENDING_KEY, JSON.stringify(next));
+}
+
+export function updateLocalVideoMetadata(videoId: string, patch: Partial<Video>): void {
+  const videos = loadLocalVideos();
+  const next = videos.map((video) =>
+    video.video_id === videoId ? { ...video, ...patch } : video
+  );
+  if (next.some((video, index) => video !== videos[index])) {
+    saveLocalVideos(next);
+  }
+}
+
+export function videoSyncLabel(
+  videoId: string,
+  serverIds: Set<string>,
+  pendingIds: Set<string>
+): string | null {
+  if (serverIds.has(videoId)) return null;
+  if (pendingIds.has(videoId)) return "已写入 CSV，待 Actions 同步";
+  return "仅本地，未同步 GitHub";
 }
