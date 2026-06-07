@@ -238,6 +238,15 @@ input {
   background: var(--bg);
 }
 
+.thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.1rem;
+  border: 1px solid var(--border);
+}
+
 .link {
   color: var(--accent2);
   text-decoration: none;
@@ -340,8 +349,128 @@ input {
   color: var(--text);
 }
 
+.detail-date-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: flex-end;
+  margin: 14px 0 16px;
+}
+
+.detail-date-filter label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.detail-date-filter input[type="date"] {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.detail-date-hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  align-self: center;
+}
+
+.kpi-sub {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--success);
+}
+
+.local-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning);
+}
+
+.github-sync-panel {
+  margin-bottom: 14px;
+}
+
+.github-sync-form {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.github-sync-hint {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.github-sync-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.github-sync-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.github-sync-grid label.span-2 {
+  grid-column: span 2;
+}
+
+.github-sync-grid input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+@media (max-width: 640px) {
+  .github-sync-grid {
+    grid-template-columns: 1fr;
+  }
+  .github-sync-grid label.span-2 {
+    grid-column: span 1;
+  }
+}
+
 .empty {
   color: var(--muted);
   padding: 24px;
   text-align: center;
+}
+
+.static-notice {
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.static-notice code {
+  color: var(--text);
+  background: var(--surface2);
+  padding: 2px 6px;
+  border-radius: 4px;
 }

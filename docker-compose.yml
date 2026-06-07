@@ -1,49 +1,7 @@
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: kol-youtube-mysql
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-password}
-      MYSQL_DATABASE: kol_youtube
-    ports:
-      - "127.0.0.1:3306:3306"   # bind to localhost only for security
-    volumes:
-      - kol_mysql_data:/var/lib/mysql
-    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-password}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  backend:
-    build: ./backend
-    container_name: kol-youtube-backend
-    restart: unless-stopped
-    depends_on:
-      mysql:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      # Override DB host to point to the mysql container
-      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-password}@mysql:3306/kol_youtube?charset=utf8mb4
-    ports:
-      - "127.0.0.1:8000:8000"   # localhost only; remove 127.0.0.1 if Nginx is on a separate host
-
   frontend:
     build: ./frontend
     container_name: kol-youtube-frontend
     restart: unless-stopped
-    depends_on:
-      - backend
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      # Mount SSL certificates (create ./certs/ on host and place fullchain.pem + privkey.pem)
-      - ./certs:/etc/nginx/ssl:ro
-
-volumes:
-  kol_mysql_data:
+      - "8080:80"

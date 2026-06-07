@@ -1,21 +1,3 @@
-import axios, { type AxiosResponse } from "axios";
-
-const client = axios.create({ baseURL: "/api" });
-
-/**
- * Validate that the response is JSON, not HTML (SPA fallback).
- * If Cloudflare serves index.html for /api routes, this catches it.
- */
-function validateJsonResponse(res: AxiosResponse): AxiosResponse {
-  const ct = String(res.headers["content-type"] || "");
-  if (!ct.includes("application/json")) {
-    throw new Error(`后端未连接：收到 ${ct || "非 JSON"} 响应`);
-  }
-  return res;
-}
-
-client.interceptors.response.use(validateJsonResponse);
-
 export interface Video {
   video_id: string;
   title: string;
@@ -74,70 +56,58 @@ export interface VideoDetail {
   view_deltas: Array<{ time: string; delta_views: number }>;
 }
 
+export interface StaticSiteData {
+  generated_at: string;
+  mode: string;
+  dashboard: DashboardData;
+  details: Record<string, VideoDetail>;
+}
+
+let cachedSite: StaticSiteData | null = null;
+
+async function loadSite(): Promise<StaticSiteData> {
+  if (cachedSite) return cachedSite;
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const res = await fetch(`${base}/data/site.json`, { cache: "no-cache" });
+  if (!res.ok) {
+    throw new Error(`无法加载数据文件 (${res.status})`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error("数据文件格式错误，请先运行 python scripts/build_static.py");
+  }
+  cachedSite = (await res.json()) as StaticSiteData;
+  return cachedSite;
+}
+
 export async function fetchHealth() {
-  const { data } = await client.get<{
-    status: string;
-    api_key_configured: boolean;
-    db_connected: boolean;
-  }>("/health");
-  return data;
+  const site = await loadSite();
+  return {
+    status: "ok",
+    data_loaded: true,
+    generated_at: site.generated_at,
+  };
 }
 
 export async function fetchVideos() {
-  const { data } = await client.get<{ videos: Video[] }>("/videos");
-  return data.videos;
-}
-
-export async function addVideo(urlOrId: string) {
-  const { data } = await client.post<{ video: Video; message: string }>("/videos", {
-    url_or_id: urlOrId,
-  });
-  return data;
-}
-
-export interface BatchAddResult {
-  added: number;
-  existing: number;
-  invalid: number;
-  duplicate_input: number;
-  message: string;
-  videos: Video[];
-  results: Array<{
-    input: string;
-    video_id?: string;
-    status: "added" | "exists" | "invalid" | "duplicate_input";
-    message?: string;
-    video?: Video;
-  }>;
-}
-
-export async function addVideosBatch(urlsOrIds: string[]) {
-  const { data } = await client.post<BatchAddResult>("/videos/batch", {
-    urls_or_ids: urlsOrIds,
-  });
-  return data;
-}
-
-export async function deleteVideo(videoId: string) {
-  await client.delete(`/videos/${videoId}`);
-}
-
-export async function collectAll(videoId?: string) {
-  const { data } = await client.post<{
-    written: number;
-    skipped: number;
-    failed: number;
-    results: unknown[];
-  }>("/collect", videoId ? { video_id: videoId } : {});
-  return data;
+  const site = await loadSite();
+  return site.dashboard.videos;
 }
 
 export async function fetchDashboard() {
-  const { data } = await client.get<DashboardData>("/dashboard");
-  return data;
+  const site = await loadSite();
+  return site.dashboard;
 }
 
 export async function fetchVideoDetail(videoId: string) {
-  const { data } = await client.get<VideoDetail>(`/videos/${videoId}/detail`);
-  return data;
+  const site = await loadSite();
+  const detail = site.details[videoId];
+  if (!detail) {
+    throw new Error("视频不存在");
+  }
+  return detail;
+}
+
+export function clearSiteCache() {
+  cachedSite = null;
 }

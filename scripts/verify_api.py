@@ -9,13 +9,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "backend"))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-# 公开测试视频（YouTube 官方示例类内容，仅用于连通性检测）
 TEST_VIDEO_ID = "jNQXAC9IVRw"
 
 

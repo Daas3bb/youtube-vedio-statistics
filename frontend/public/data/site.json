@@ -1,0 +1,261 @@
+{
+  "generated_at": "2026-06-07T12:43:19",
+  "mode": "static",
+  "dashboard": {
+    "kpi": {
+      "video_count": 2,
+      "monitored_with_data": 2,
+      "total_views": 1779644598,
+      "total_likes": 19146603,
+      "total_comments": 2441062,
+      "daily_new_views": 0,
+      "like_rate": 1.08,
+      "comment_rate": 0.14
+    },
+    "rankings": [
+      {
+        "video_id": "dQw4w9WgXcQ",
+        "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        "thumbnail_url": "thumbnails/dQw4w9WgXcQ.jpg",
+        "channel_title": "Rick Astley",
+        "view_count": 1779537800,
+        "like_count": 19137890,
+        "comment_count": 2440420,
+        "snapshot_time": "2026-06-05 11:23:09"
+      },
+      {
+        "video_id": "ALUoOoWpHJU",
+        "title": "These Red Railings Changed the Whole House | 1857 Rowhome Renovation Week 89",
+        "thumbnail_url": "thumbnails/ALUoOoWpHJU.jpg",
+        "channel_title": "Chris Hytha",
+        "view_count": 106798,
+        "like_count": 8713,
+        "comment_count": 642,
+        "snapshot_time": "2026-06-05 11:23:09"
+      }
+    ],
+    "trend": [
+      {
+        "time": "2026-06-04 14:46",
+        "total_views": 1779259835
+      },
+      {
+        "time": "2026-06-04 15:33",
+        "total_views": 1779371988
+      },
+      {
+        "time": "2026-06-04 17:40",
+        "total_views": 1779390984
+      },
+      {
+        "time": "2026-06-05 08:51",
+        "total_views": 1779613379
+      },
+      {
+        "time": "2026-06-05 09:58",
+        "total_views": 1779627871
+      },
+      {
+        "time": "2026-06-05 10:06",
+        "total_views": 1779629017
+      },
+      {
+        "time": "2026-06-05 11:23",
+        "total_views": 1779644598
+      }
+    ],
+    "daily_new_by_video": [],
+    "videos": [
+      {
+        "video_id": "dQw4w9WgXcQ",
+        "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "thumbnail_url": "thumbnails/dQw4w9WgXcQ.jpg",
+        "publish_time": "2009-10-25",
+        "channel_title": "Rick Astley",
+        "status": "active",
+        "created_at": "2026-06-04 14:46:44"
+      },
+      {
+        "video_id": "ALUoOoWpHJU",
+        "title": "These Red Railings Changed the Whole House | 1857 Rowhome Renovation Week 89",
+        "video_url": "https://www.youtube.com/watch?v=ALUoOoWpHJU",
+        "thumbnail_url": "thumbnails/ALUoOoWpHJU.jpg",
+        "publish_time": "2026-04-20",
+        "channel_title": "Chris Hytha",
+        "status": "active",
+        "created_at": "2026-06-04 15:32:30"
+      }
+    ]
+  },
+  "details": {
+    "dQw4w9WgXcQ": {
+      "video": {
+        "video_id": "dQw4w9WgXcQ",
+        "title": "Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)",
+        "video_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "thumbnail_url": "thumbnails/dQw4w9WgXcQ.jpg",
+        "publish_time": "2009-10-25",
+        "channel_title": "Rick Astley",
+        "status": "active",
+        "created_at": "2026-06-04 14:46:44"
+      },
+      "latest": {
+        "video_id": "dQw4w9WgXcQ",
+        "snapshot_time": "2026-06-05 11:23:09",
+        "view_count": 1779537800,
+        "like_count": 19137890,
+        "comment_count": 2440420
+      },
+      "history": [
+        {
+          "time": "2026-06-04 14:46:52",
+          "views": 1779259835,
+          "likes": 19136401,
+          "comments": 2440384
+        },
+        {
+          "time": "2026-06-04 15:33:33",
+          "views": 1779265291,
+          "likes": 19136436,
+          "comments": 2440387
+        },
+        {
+          "time": "2026-06-04 17:40:02",
+          "views": 1779284275,
+          "likes": 19136578,
+          "comments": 2440394
+        },
+        {
+          "time": "2026-06-05 08:51:04",
+          "views": 1779506581,
+          "likes": 19137703,
+          "comments": 2440415
+        },
+        {
+          "time": "2026-06-05 09:58:08",
+          "views": 1779521073,
+          "likes": 19137791,
+          "comments": 2440421
+        },
+        {
+          "time": "2026-06-05 10:06:35",
+          "views": 1779522231,
+          "likes": 19137802,
+          "comments": 2440421
+        },
+        {
+          "time": "2026-06-05 11:23:09",
+          "views": 1779537800,
+          "likes": 19137890,
+          "comments": 2440420
+        }
+      ],
+      "view_deltas": [
+        {
+          "time": "2026-06-04 15:33:33",
+          "delta_views": 5456
+        },
+        {
+          "time": "2026-06-04 17:40:02",
+          "delta_views": 18984
+        },
+        {
+          "time": "2026-06-05 08:51:04",
+          "delta_views": 222306
+        },
+        {
+          "time": "2026-06-05 09:58:08",
+          "delta_views": 14492
+        },
+        {
+          "time": "2026-06-05 10:06:35",
+          "delta_views": 1158
+        },
+        {
+          "time": "2026-06-05 11:23:09",
+          "delta_views": 15569
+        }
+      ]
+    },
+    "ALUoOoWpHJU": {
+      "video": {
+        "video_id": "ALUoOoWpHJU",
+        "title": "These Red Railings Changed the Whole House | 1857 Rowhome Renovation Week 89",
+        "video_url": "https://www.youtube.com/watch?v=ALUoOoWpHJU",
+        "thumbnail_url": "thumbnails/ALUoOoWpHJU.jpg",
+        "publish_time": "2026-04-20",
+        "channel_title": "Chris Hytha",
+        "status": "active",
+        "created_at": "2026-06-04 15:32:30"
+      },
+      "latest": {
+        "video_id": "ALUoOoWpHJU",
+        "snapshot_time": "2026-06-05 11:23:09",
+        "view_count": 106798,
+        "like_count": 8713,
+        "comment_count": 642
+      },
+      "history": [
+        {
+          "time": "2026-06-04 15:33:33",
+          "views": 106697,
+          "likes": 8710,
+          "comments": 639
+        },
+        {
+          "time": "2026-06-04 17:40:02",
+          "views": 106709,
+          "likes": 8710,
+          "comments": 639
+        },
+        {
+          "time": "2026-06-05 08:51:04",
+          "views": 106798,
+          "likes": 8713,
+          "comments": 642
+        },
+        {
+          "time": "2026-06-05 09:58:08",
+          "views": 106798,
+          "likes": 8713,
+          "comments": 642
+        },
+        {
+          "time": "2026-06-05 10:06:35",
+          "views": 106786,
+          "likes": 8713,
+          "comments": 642
+        },
+        {
+          "time": "2026-06-05 11:23:09",
+          "views": 106798,
+          "likes": 8713,
+          "comments": 642
+        }
+      ],
+      "view_deltas": [
+        {
+          "time": "2026-06-04 17:40:02",
+          "delta_views": 12
+        },
+        {
+          "time": "2026-06-05 08:51:04",
+          "delta_views": 89
+        },
+        {
+          "time": "2026-06-05 09:58:08",
+          "delta_views": 0
+        },
+        {
+          "time": "2026-06-05 10:06:35",
+          "delta_views": 0
+        },
+        {
+          "time": "2026-06-05 11:23:09",
+          "delta_views": 12
+        }
+      ]
+    }
+  }
+}

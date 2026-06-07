@@ -42,30 +42,7 @@ def latest_snapshots() -> dict[str, dict[str, Any]]:
     return latest
 
 
-def daily_view_series(video_id: str | None = None) -> list[dict[str, Any]]:
-    """Per-day last snapshot view count for trend."""
-    history = list_history(video_id)
-    by_day: dict[str, dict[str, Any]] = {}
-    for row in history:
-        vid = row.get("video_id", "")
-        dt = _parse_dt(row.get("snapshot_time", ""))
-        if not dt:
-            continue
-        day = dt.strftime("%Y-%m-%d")
-        views = _parse_int(row.get("view_count"))
-        key = f"{vid}:{day}" if not video_id else day
-        cur = by_day.get(key)
-        if not cur or dt > cur["_dt"]:
-            by_day[key] = {"date": day, "video_id": vid, "views": views, "_dt": dt}
-    items = sorted(
-        [{"date": v["date"], "video_id": v["video_id"], "views": v["views"]} for v in by_day.values()],
-        key=lambda x: (x["date"], x["video_id"]),
-    )
-    return items
-
-
 def compute_daily_delta_views() -> int:
-    """Sum of per-video (today last - yesterday last) view deltas."""
     history = list_history()
     per_video_day: dict[str, dict[str, int]] = defaultdict(dict)
     per_video_dt: dict[str, dict[str, datetime]] = defaultdict(dict)
@@ -85,7 +62,7 @@ def compute_daily_delta_views() -> int:
     today = datetime.now().strftime("%Y-%m-%d")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     total_delta = 0
-    for vid, days in per_video_day.items():
+    for days in per_video_day.values():
         t_views = days.get(today)
         y_views = days.get(yesterday)
         if t_views is not None and y_views is not None:
@@ -120,7 +97,6 @@ def build_dashboard() -> dict[str, Any]:
         )
     rankings.sort(key=lambda x: x["view_count"], reverse=True)
 
-    # Per-video trend (aggregate all videos by snapshot time bucket)
     trend_map: dict[str, int] = defaultdict(int)
     for row in list_history():
         dt = _parse_dt(row.get("snapshot_time", ""))
@@ -131,7 +107,6 @@ def build_dashboard() -> dict[str, Any]:
 
     trend = [{"time": k, "total_views": trend_map[k]} for k in sorted(trend_map.keys())]
 
-    # Daily new views per video for bar chart
     daily_new: list[dict[str, Any]] = []
     per_vid_days: dict[str, dict[str, int]] = defaultdict(dict)
     per_vid_dt: dict[str, dict[str, datetime]] = defaultdict(dict)
@@ -176,7 +151,6 @@ def build_dashboard() -> dict[str, Any]:
         "trend": trend[-48:],
         "daily_new_by_video": daily_new[:15],
         "videos": videos,
-        "latest_snapshots": list(latest.values()),
     }
 
 
@@ -199,7 +173,6 @@ def video_detail(video_id: str) -> dict[str, Any] | None:
                 "comments": _parse_int(row.get("comment_count")),
             }
         )
-    # Delta views between consecutive snapshots
     deltas = []
     for i in range(1, len(points)):
         prev, cur = points[i - 1], points[i]

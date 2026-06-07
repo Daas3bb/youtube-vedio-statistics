@@ -5,10 +5,15 @@ cd "$ROOT"
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "已创建 .env，请编辑并填入 YOUTUBE_API_KEY"
+  echo "已创建 .env，请编辑并填入 YOUTUBE_API_KEY（本地采集时需要）"
 fi
 
-pip install -r backend/requirements.txt
-(cd frontend && npm install)
-python scripts/verify_api.py
-echo "完成。启动方式见 README.md"
+pip install -r scripts/requirements.txt
+python scripts/build_static.py
+
+cd frontend && npm install
+
+echo ""
+echo "完成。启动方式："
+echo "  python scripts/build_static.py"
+echo "  cd frontend && npm run dev"

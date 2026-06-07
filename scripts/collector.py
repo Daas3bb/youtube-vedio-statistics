@@ -1,25 +1,30 @@
 """
 Standalone collector for CLI and GitHub Actions.
-Reads videos from MySQL, fetches YouTube stats, appends history snapshots with dedup.
+Reads videos from data/store.json, fetches YouTube stats, appends history snapshots.
 """
 import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
 
-# Allow running as script from repo root or backend/
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import YOUTUBE_API_KEY  # noqa: E402
-from database import init_db  # noqa: E402
-from storage import append_snapshot, list_videos, upsert_video  # noqa: E402
+from analytics import build_dashboard  # noqa: E402
+from config import ROOT, VIDEOS_CSV, YOUTUBE_API_KEY  # noqa: E402
+from storage import append_snapshot, import_from_csv, list_videos, upsert_video  # noqa: E402
 from youtube_client import fetch_video_stats  # noqa: E402
 
 
+def sync_inputs() -> None:
+    history_csv = ROOT / "data" / "history.csv"
+    import_from_csv(VIDEOS_CSV, history_csv)
+
+
 async def collect_all() -> dict:
+    sync_inputs()
     videos = list_videos(active_only=True)
     if not videos:
-        print("No active videos in database")
+        print("No active videos in store.json (add URLs to inputs/videos.csv)")
         return {"total": 0, "written": 0, "skipped": 0, "failed": 0}
 
     ids = [v["video_id"] for v in videos if v.get("video_id")]
@@ -68,8 +73,12 @@ async def collect_all() -> dict:
 
 
 def main():
-    init_db()
     result = asyncio.run(collect_all())
+    dash = build_dashboard()
+    print(
+        f"Dashboard: {dash['kpi']['video_count']} videos, "
+        f"{dash['kpi']['total_views']:,} total views"
+    )
     sys.exit(0 if result["failed"] == 0 else 1)
 
 

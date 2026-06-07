@@ -1,23 +1,29 @@
-name: Hourly YouTube Data Collection
+name: Collect and Deploy Static Site
 
 on:
   schedule:
-    # 每 2 小时（UTC）；北京时间约 +8
     - cron: "0 */2 * * *"
   workflow_dispatch:
   push:
     branches: [main, master]
     paths:
       - ".github/workflows/collect.yml"
-      - "backend/**"
+      - "scripts/**"
+      - "inputs/**"
+      - "data/**"
+      - "frontend/**"
 
 concurrency:
-  group: kol-collector
+  group: kol-static-deploy
   cancel-in-progress: false
 
 jobs:
-  collect:
+  collect-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -28,44 +34,54 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
-        run: pip install -r backend/requirements.txt
-
-      # ---- SSH tunnel to production MySQL ----
-      - name: Setup SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          # Add server host key to known_hosts to avoid interactive prompt
-          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-
-      - name: Start SSH tunnel to MySQL
-        env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-        run: |
-          # Forward local port 33060 -> remote MySQL 127.0.0.1:3306
-          ssh -f -N -L 33060:127.0.0.1:3306 \
-            -i ~/.ssh/deploy_key \
-            -p "${SSH_PORT:-22}" \
-            "${SSH_USER}@${SSH_HOST}"
-          echo "SSH tunnel established on local port 33060"
-          # Give MySQL a moment to accept the connection
-          sleep 2
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
 
       - name: Run collector
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
-          # Point to the LOCAL end of the SSH tunnel
-          DATABASE_URL: mysql+pymysql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@127.0.0.1:33060/kol_youtube?charset=utf8mb4
           DEDUP_GRANULARITY: hour
-        working-directory: backend
-        run: python collector.py
+        run: python scripts/collector.py
 
-      - name: Close SSH tunnel
-        if: always()
+      - name: Build static data
+        run: python scripts/build_static.py
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          PAGES_BASE: /${{ github.event.repository.name }}/
+          VITE_GITHUB_REPO: ${{ github.repository }}
+          VITE_GITHUB_BRANCH: ${{ github.ref_name }}
         run: |
-          pkill -f "ssh -f -N -L 33060" || true
-          rm -f ~/.ssh/deploy_key
+          npm ci
+          npm run build
+
+      - name: Commit updated data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/store.json frontend/public/data/site.json frontend/public/thumbnails/
+          if git diff --cached --quiet; then
+            echo "No data changes to commit"
+          else
+            git commit -m "📊 Auto: data update [$(date -u +'%Y-%m-%d %H:%M UTC')]"
+            git push
+          fi
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: frontend/dist
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
