@@ -747,6 +747,31 @@ input {
   gap: 20px;
 }
 
+.detail-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.detail-chart-head h3 {
+  margin: 0;
+}
+
+.detail-chart-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.detail-chart-toggle-btn.active {
+  color: var(--accent2);
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .detail-chart-block h3 {
   font-size: 0.88rem;
   font-weight: 600;

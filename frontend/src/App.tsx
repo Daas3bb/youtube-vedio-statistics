@@ -164,13 +164,7 @@ const detailChartGrid = {
   containLabel: true,
 };
 
-const detailEngagementChartGrid = {
-  left: 24,
-  right: 24,
-  top: 52,
-  bottom: 56,
-  containLabel: true,
-};
+type EngagementChartMode = "likes" | "comments";
 
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -181,6 +175,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [detailDateFrom, setDetailDateFrom] = useState(() => loadDetailDateFilter().from);
   const [detailDateTo, setDetailDateTo] = useState(() => loadDetailDateFilter().to);
+  const [engagementChartMode, setEngagementChartMode] = useState<EngagementChartMode>("likes");
   const [input, setInput] = useState("");
   const [batchInput, setBatchInput] = useState("");
   const [showBatchForm, setShowBatchForm] = useState(false);
@@ -1133,135 +1128,97 @@ export default function App() {
       })()
     : {};
 
-  const detailEngagementOption = detailHistoryFiltered.length
-    ? (() => {
-        const likeValues = detailHistoryFiltered.map((h) => h.likes);
-        const commentValues = detailHistoryFiltered.map((h) => h.comments);
-        const deltaLikeValues = [0, ...detailDeltasFiltered.map((d) => d.delta_likes)];
-        const deltaCommentValues = [0, ...detailDeltasFiltered.map((d) => d.delta_comments)];
-        const likeAxis = trendAxisBounds(likeValues);
-        const commentAxis = trendAxisBounds(commentValues);
-        const deltaAxis = trendAxisBounds([...deltaLikeValues, ...deltaCommentValues]);
-        const timeLabels = detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || "");
+  const detailEngagementOption = useMemo(() => {
+    if (!detailHistoryFiltered.length) return {};
 
-        return {
-          backgroundColor: "transparent",
-          tooltip: {
-            trigger: "axis",
-            formatter: (params: CallbackDataParams | CallbackDataParams[]) => {
-              const items = Array.isArray(params) ? params : [params];
-              const time = String(items[0]?.name ?? "");
-              let html = `时间：${time}<br/>`;
-              for (const p of items) {
-                html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
-              }
-              return html;
-            },
+    const isLikes = engagementChartMode === "likes";
+    const mainValues = detailHistoryFiltered.map((h) => (isLikes ? h.likes : h.comments));
+    const deltaValues = [
+      0,
+      ...detailDeltasFiltered.map((d) => (isLikes ? d.delta_likes : d.delta_comments)),
+    ];
+    const mainName = isLikes ? "点赞" : "评论";
+    const deltaName = isLikes ? "新增点赞" : "新增评论";
+    const mainColor = isLikes ? "#3b82f6" : "#f59e0b";
+    const areaColor = isLikes ? "rgba(59, 130, 246, 0.1)" : "rgba(245, 158, 11, 0.1)";
+    const barColor = isLikes ? "#60a5fa" : "#fbbf24";
+    const mainAxis = trendAxisBounds(mainValues);
+    const deltaAxis = trendAxisBounds(deltaValues);
+    const timeLabels = detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || "");
+
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        formatter: (params: CallbackDataParams | CallbackDataParams[]) => {
+          const items = Array.isArray(params) ? params : [params];
+          const time = String(items[0]?.name ?? "");
+          let html = `时间：${time}<br/>`;
+          for (const p of items) {
+            html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
+          }
+          return html;
+        },
+      },
+      legend: { data: [mainName, deltaName], textStyle: { color: "#8b9cb3" } },
+      grid: detailChartGrid,
+      xAxis: {
+        type: "category",
+        data: timeLabels,
+        axisLabel: { color: "#8b9cb3", margin: 10 },
+      },
+      yAxis: [
+        {
+          type: "value",
+          name: mainName,
+          position: "left",
+          nameGap: 12,
+          ...mainAxis,
+          scale: true,
+          axisLabel: {
+            color: "#8b9cb3",
+            formatter: (v: number) => formatNum(v),
+            margin: 12,
           },
-          legend: {
-            data: ["点赞", "新增点赞", "评论", "新增评论"],
-            textStyle: { color: "#8b9cb3" },
+          splitLine: { lineStyle: { color: "#2d3a4f" } },
+        },
+        {
+          type: "value",
+          name: deltaName,
+          position: "right",
+          nameGap: 12,
+          ...deltaAxis,
+          scale: true,
+          axisLabel: {
+            color: "#8b9cb3",
+            formatter: (v: number) => formatNum(v),
+            margin: 12,
           },
-          grid: detailEngagementChartGrid,
-          xAxis: {
-            type: "category",
-            data: timeLabels,
-            axisLabel: { color: "#8b9cb3", margin: 10 },
-          },
-          yAxis: [
-            {
-              type: "value",
-              name: "点赞",
-              position: "left",
-              nameGap: 12,
-              ...likeAxis,
-              scale: true,
-              axisLabel: {
-                color: "#8b9cb3",
-                formatter: (v: number) => formatNum(v),
-                margin: 10,
-                align: "right",
-              },
-              splitLine: { lineStyle: { color: "#2d3a4f" } },
-            },
-            {
-              type: "value",
-              name: "增量",
-              position: "right",
-              nameGap: 12,
-              ...deltaAxis,
-              scale: true,
-              axisLabel: {
-                color: "#8b9cb3",
-                formatter: (v: number) => formatNum(v),
-                margin: 10,
-                align: "left",
-              },
-              splitLine: { show: false },
-            },
-            {
-              type: "value",
-              name: "评论",
-              position: "right",
-              offset: 64,
-              nameGap: 12,
-              ...commentAxis,
-              scale: true,
-              axisLabel: {
-                color: "#f59e0b",
-                formatter: (v: number) => formatNum(v),
-                margin: 10,
-                align: "left",
-              },
-              axisLine: { show: true, lineStyle: { color: "#f59e0b", opacity: 0.35 } },
-              splitLine: { show: false },
-            },
-          ],
-          series: [
-            {
-              name: "点赞",
-              type: "line",
-              smooth: true,
-              yAxisIndex: 0,
-              z: 1,
-              data: likeValues,
-              lineStyle: { color: "#3b82f6", width: 2 },
-              itemStyle: { color: "#3b82f6" },
-              areaStyle: { color: "rgba(59, 130, 246, 0.1)" },
-            },
-            {
-              name: "新增点赞",
-              type: "bar",
-              yAxisIndex: 1,
-              z: 2,
-              barMaxWidth: 20,
-              data: deltaLikeValues,
-              itemStyle: { color: "#60a5fa", opacity: 0.85, borderRadius: [3, 3, 0, 0] },
-            },
-            {
-              name: "评论",
-              type: "line",
-              smooth: true,
-              yAxisIndex: 2,
-              z: 1,
-              data: commentValues,
-              lineStyle: { color: "#f59e0b", width: 2 },
-              itemStyle: { color: "#f59e0b" },
-              areaStyle: { color: "rgba(245, 158, 11, 0.1)" },
-            },
-            {
-              name: "新增评论",
-              type: "bar",
-              yAxisIndex: 1,
-              z: 2,
-              barMaxWidth: 20,
-              data: deltaCommentValues,
-              itemStyle: { color: "#fbbf24", opacity: 0.85, borderRadius: [3, 3, 0, 0] },
-            },
-          ],
-        };
-      })()
-    : {};
+          splitLine: { show: false },
+        },
+      ],
+      series: [
+        {
+          name: mainName,
+          type: "line",
+          smooth: true,
+          yAxisIndex: 0,
+          data: mainValues,
+          lineStyle: { color: mainColor, width: 2 },
+          itemStyle: { color: mainColor },
+          areaStyle: { color: areaColor },
+        },
+        {
+          name: deltaName,
+          type: "bar",
+          yAxisIndex: 1,
+          barMaxWidth: 20,
+          data: deltaValues,
+          itemStyle: { color: barColor, opacity: 0.85, borderRadius: [3, 3, 0, 0] },
+        },
+      ],
+    };
+  }, [detailHistoryFiltered, detailDeltasFiltered, engagementChartMode]);
 
   const kpi = visibleDashboard?.kpi;
 
@@ -1468,7 +1425,25 @@ export default function App() {
               </div>
             </div>
             <div className="detail-chart-block">
-              <h3>点赞 / 评论趋势</h3>
+              <div className="detail-chart-head">
+                <h3>互动趋势</h3>
+                <div className="detail-chart-toggle">
+                  <button
+                    type="button"
+                    className={`btn detail-chart-toggle-btn${engagementChartMode === "likes" ? " active" : ""}`}
+                    onClick={() => setEngagementChartMode("likes")}
+                  >
+                    点赞
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn detail-chart-toggle-btn${engagementChartMode === "comments" ? " active" : ""}`}
+                    onClick={() => setEngagementChartMode("comments")}
+                  >
+                    评论
+                  </button>
+                </div>
+              </div>
               <div className="chart-box">
                 {detailHistoryFiltered.length ? (
                   <LazyChart option={detailEngagementOption} style={{ height: "100%" }} />
