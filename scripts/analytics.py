@@ -22,23 +22,27 @@ def _parse_dt(value: str) -> datetime | None:
 
 
 def latest_snapshots() -> dict[str, dict[str, Any]]:
-    history = list_history()
+    history = sorted(list_history(), key=lambda r: r.get("snapshot_time", ""))
     latest: dict[str, dict[str, Any]] = {}
+    peak_views: dict[str, int] = defaultdict(int)
+    peak_likes: dict[str, int] = defaultdict(int)
+    peak_comments: dict[str, int] = defaultdict(int)
+
     for row in history:
         vid = row.get("video_id", "")
         snap = row.get("snapshot_time", "")
-        if not vid:
+        if not vid or not snap:
             continue
-        dt = _parse_dt(snap)
-        prev = latest.get(vid)
-        if not prev or (dt and _parse_dt(prev["snapshot_time"]) and dt > _parse_dt(prev["snapshot_time"])):
-            latest[vid] = {
-                "video_id": vid,
-                "snapshot_time": snap,
-                "view_count": _parse_int(row.get("view_count")),
-                "like_count": _parse_int(row.get("like_count")),
-                "comment_count": _parse_int(row.get("comment_count")),
-            }
+        peak_views[vid] = max(peak_views[vid], _parse_int(row.get("view_count")))
+        peak_likes[vid] = max(peak_likes[vid], _parse_int(row.get("like_count")))
+        peak_comments[vid] = max(peak_comments[vid], _parse_int(row.get("comment_count")))
+        latest[vid] = {
+            "video_id": vid,
+            "snapshot_time": snap,
+            "view_count": peak_views[vid],
+            "like_count": peak_likes[vid],
+            "comment_count": peak_comments[vid],
+        }
     return latest
 
 
@@ -154,6 +158,25 @@ def build_dashboard() -> dict[str, Any]:
     }
 
 
+def _monotonic_history_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """播放量等为累计值，用运行最大值抹平偶发回退。"""
+    max_views = max_likes = max_comments = 0
+    normalized: list[dict[str, Any]] = []
+    for point in points:
+        max_views = max(max_views, point["views"])
+        max_likes = max(max_likes, point["likes"])
+        max_comments = max(max_comments, point["comments"])
+        normalized.append(
+            {
+                "time": point["time"],
+                "views": max_views,
+                "likes": max_likes,
+                "comments": max_comments,
+            }
+        )
+    return normalized
+
+
 def video_detail(video_id: str) -> dict[str, Any] | None:
     videos = list_videos()
     meta = next((v for v in videos if v.get("video_id") == video_id), None)
@@ -173,6 +196,7 @@ def video_detail(video_id: str) -> dict[str, Any] | None:
                 "comments": _parse_int(row.get("comment_count")),
             }
         )
+    points = _monotonic_history_points(points)
     deltas = []
     for i in range(1, len(points)):
         prev, cur = points[i - 1], points[i]

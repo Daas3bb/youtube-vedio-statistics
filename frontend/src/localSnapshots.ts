@@ -1,6 +1,6 @@
 import type { VideoDetail } from "./api";
 import type { HistoryPoint } from "./detailFilter";
-import { computeDeltas } from "./detailFilter";
+import { computeDeltas, normalizeCumulativeHistory } from "./detailFilter";
 import type { YoutubeVideoStats } from "./youtubeCollect";
 
 const LS_KEY = "kol-local-snapshots";
@@ -104,7 +104,7 @@ export function buildMergedDetail(
 
   const serverHistory = serverDetail?.history ?? [];
   const localHistory = toHistoryPoints(getLocalSnapshots(videoId));
-  const history = mergeHistory(serverHistory, localHistory);
+  const history = normalizeCumulativeHistory(mergeHistory(serverHistory, localHistory));
   const latestPoint = history[history.length - 1];
 
   return {

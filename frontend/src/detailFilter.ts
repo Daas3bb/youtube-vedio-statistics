@@ -37,14 +37,45 @@ export function shouldCollapseDailySnapshots(from: string, to: string): boolean 
   return !isTodayOnlyFilter(from, to);
 }
 
-/** 非「今天」筛选时，每个日期只保留当天最后一条快照 */
+/** 播放量等为累计值：用运行最大值抹平 API 偶发回退 */
+export function normalizeCumulativeHistory(history: HistoryPoint[]): HistoryPoint[] {
+  let maxViews = 0;
+  let maxLikes = 0;
+  let maxComments = 0;
+  return sortByTime(history).map((point) => {
+    maxViews = Math.max(maxViews, point.views);
+    maxLikes = Math.max(maxLikes, point.likes);
+    maxComments = Math.max(maxComments, point.comments);
+    return {
+      ...point,
+      views: maxViews,
+      likes: maxLikes,
+      comments: maxComments,
+    };
+  });
+}
+
+function isBetterDailySnapshot(candidate: HistoryPoint, existing: HistoryPoint): boolean {
+  if (candidate.views !== existing.views) {
+    return candidate.views > existing.views;
+  }
+  if (candidate.likes !== existing.likes) {
+    return candidate.likes > existing.likes;
+  }
+  if (candidate.comments !== existing.comments) {
+    return candidate.comments > existing.comments;
+  }
+  return candidate.time.localeCompare(existing.time) > 0;
+}
+
+/** 非「今天」筛选时，每个日期保留当天累计值最高的一条（同值取更晚时间） */
 export function collapseDailySnapshots(history: HistoryPoint[]): HistoryPoint[] {
   const byDay = new Map<string, HistoryPoint>();
   for (const point of sortByTime(history)) {
     const d = dayOf(point.time);
     if (!d) continue;
     const existing = byDay.get(d);
-    if (!existing || point.time.localeCompare(existing.time) > 0) {
+    if (!existing || isBetterDailySnapshot(point, existing)) {
       byDay.set(d, point);
     }
   }
@@ -58,9 +89,9 @@ export function filterHistoryForDetail(
   from: string,
   to: string
 ): HistoryPoint[] {
-  const ranged = sortByTime(filterHistory(history, from, to));
+  const ranged = normalizeCumulativeHistory(filterHistory(history, from, to));
   if (!shouldCollapseDailySnapshots(from, to)) return ranged;
-  return collapseDailySnapshots(ranged);
+  return normalizeCumulativeHistory(collapseDailySnapshots(ranged));
 }
 
 export interface HistoryDeltas {
