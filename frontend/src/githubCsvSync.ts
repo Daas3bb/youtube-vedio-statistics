@@ -615,6 +615,9 @@ export function formatGithubSyncError(reason: string): string {
     return "Token 无 Actions 权限，请勾选 Actions: Read and write";
   }
   if (reason.startsWith("dispatch_failed:404")) return "找不到 collect.yml 工作流";
+  if (reason.includes("workflow_dispatch")) {
+    return "工作流未开启手动触发，请将最新 collect.yml 推送到 GitHub 后再试";
+  }
   if (reason.startsWith("write_failed:409")) {
     return "videos.csv 已被其他人/Actions 更新（版本冲突），请稍后重试「同步 GitHub」";
   }

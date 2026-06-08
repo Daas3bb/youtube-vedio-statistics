@@ -3,6 +3,7 @@ name: Collect and Deploy Static Site
 on:
   schedule:
     - cron: "0 */2 * * *"
+  workflow_dispatch:
   push:
     branches: [main, master]
     paths:
@@ -28,17 +29,17 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Python
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install Python dependencies
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: pip install -r scripts/requirements.txt
 
       - name: Sync latest branch before collector
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -46,14 +47,14 @@ jobs:
           git pull --rebase origin "${GITHUB_REF_NAME}"
 
       - name: Run collector
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           DEDUP_GRANULARITY: hour
         run: python scripts/collector.py
 
       - name: Build static data
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python scripts/build_static.py
 
       - name: Setup Node
@@ -74,7 +75,7 @@ jobs:
           npm run build
 
       - name: Commit updated data
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
