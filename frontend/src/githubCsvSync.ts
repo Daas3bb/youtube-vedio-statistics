@@ -382,7 +382,8 @@ export async function fetchLatestCollectWorkflowRun(
 
 export async function appendVideosToGithubCsv(
   videoIds: string[],
-  settings: GithubSyncSettings = loadGithubSettings()
+  settings: GithubSyncSettings = loadGithubSettings(),
+  createdAtById: Record<string, string> = {}
 ): Promise<{ ok: true; added: number } | { ok: false; reason: string }> {
   if (!videoIds.length) return { ok: false, reason: "empty" };
   if (!isGithubSyncReady(settings)) {
@@ -414,7 +415,7 @@ export async function appendVideosToGithubCsv(
     }
 
     const suffix = currentText.endsWith("\n") || !currentText ? "" : "\n";
-    const appended = newIds.map((id) => toCsvLine(id)).join("\n");
+    const appended = newIds.map((id) => toCsvLine(id, createdAtById[id])).join("\n");
     const nextText = `${currentText}${suffix}${appended}\n`;
 
     const putRes = await fetch(
@@ -729,12 +730,16 @@ export async function verifyGithubSettings(
   return { ok, messages };
 }
 
-export function downloadVideosCsv(videoIds: string[], existingIds: Set<string> = new Set()): void {
+export function downloadVideosCsv(
+  videoIds: string[],
+  existingIds: Set<string> = new Set(),
+  createdAtById: Record<string, string> = {}
+): void {
   const header =
     "video_id,title,video_url,thumbnail_url,publish_time,channel_title,status,created_at";
   const lines = videoIds
     .filter((id) => !existingIds.has(id))
-    .map((id) => toCsvLine(id));
+    .map((id) => toCsvLine(id, createdAtById[id]));
   if (!lines.length) return;
 
   const blob = new Blob([`${header}\n${lines.join("\n")}\n`], {
@@ -748,8 +753,11 @@ export function downloadVideosCsv(videoIds: string[], existingIds: Set<string> =
   URL.revokeObjectURL(url);
 }
 
-export function buildCsvAppendSnippet(videoIds: string[]): string {
-  return videoIds.map((id) => toCsvLine(id)).join("\n");
+export function buildCsvAppendSnippet(
+  videoIds: string[],
+  createdAtById: Record<string, string> = {}
+): string {
+  return videoIds.map((id) => toCsvLine(id, createdAtById[id])).join("\n");
 }
 
 export function formatGithubSyncError(reason: string): string {

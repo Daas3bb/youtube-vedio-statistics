@@ -389,6 +389,19 @@ export default function App() {
     };
   };
 
+  const rebuildDetailForVideo = useCallback(
+    (videoId: string, stats?: YoutubeVideoStats) => {
+      const videoMeta =
+        loadLocalVideos().find((item) => item.video_id === videoId) ??
+        serverVideos.find((item) => item.video_id === videoId);
+      if (!videoMeta) return;
+      setDetail(
+        buildMergedDetail(videoId, serverDetailRef.current[videoId] ?? null, videoMeta, stats)
+      );
+    },
+    [serverVideos]
+  );
+
   const refreshDetailForVideo = async (videoId: string) => {
     clearSiteCache();
     try {
@@ -447,7 +460,7 @@ export default function App() {
 
   const syncVideosToGithub = async (
     ids: string[],
-    options?: { quiet?: boolean }
+    options?: { quiet?: boolean; createdAtById?: Record<string, string> }
   ): Promise<"ok" | "no_token" | "failed" | "skipped"> => {
     if (!ids.length) return "skipped";
 
@@ -458,7 +471,7 @@ export default function App() {
       return "no_token";
     }
 
-    const sync = await appendVideosToGithubCsv(ids);
+    const sync = await appendVideosToGithubCsv(ids, undefined, options?.createdAtById);
 
     if (sync.ok) {
       markGithubPendingIds(ids);
@@ -587,6 +600,10 @@ export default function App() {
       const missed = uniqueIds.length - statsList.length;
       const isSingleManual = source === "manual" && uniqueIds.length === 1;
       const firstStats = statsList[0];
+
+      if (isSingleManual) {
+        rebuildDetailForVideo(uniqueIds[0], firstStats);
+      }
       const collectedIds = statsList.map((stats) => stats.video_id);
       const canPersistToFile =
         !options?.skipPersist && (import.meta.env.DEV || githubSyncReady);
@@ -673,14 +690,15 @@ export default function App() {
 
   const persistAddedVideos = async (added: Video[]) => {
     const ids = added.map((v) => v.video_id);
+    const createdAtById = Object.fromEntries(added.map((v) => [v.video_id, v.created_at]));
     if (!githubSyncReady) {
-      downloadVideosCsv(ids, serverVideoIds);
+      downloadVideosCsv(ids, serverVideoIds, createdAtById);
       showToast("已添加（仅本机）。配置 GitHub 同步后将自动写入 CSV 并触发 Actions", 6000);
       await collectStatsForVideoIds(ids, "import", { skipPersist: true });
       return;
     }
 
-    const syncResult = await syncVideosToGithub(ids, { quiet: true });
+    const syncResult = await syncVideosToGithub(ids, { quiet: true, createdAtById });
     if (syncResult !== "ok") {
       await collectStatsForVideoIds(ids, "import", { skipPersist: true });
       return;

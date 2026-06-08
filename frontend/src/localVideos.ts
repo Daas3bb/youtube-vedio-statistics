@@ -33,10 +33,15 @@ export function buildVideoUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
 
+export function formatAddedTimestamp(date: Date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 export function createVideoFromInput(raw: string): Video | null {
   const videoId = extractVideoId(raw);
   if (!videoId) return null;
-  const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const now = formatAddedTimestamp();
   return {
     video_id: videoId,
     title: "",
@@ -110,9 +115,10 @@ export function addLocalVideos(
   return { added, invalid, duplicate };
 }
 
-export function toCsvLine(videoId: string): string {
+export function toCsvLine(videoId: string, createdAt?: string): string {
   const url = buildVideoUrl(videoId);
-  return `${videoId},,${url},,,,active,`;
+  const addedAt = createdAt?.trim() || formatAddedTimestamp();
+  return `${videoId},,${url},,,,active,${addedAt}`;
 }
 
 export function isLocalOnlyVideo(videoId: string, serverIds: Set<string>): boolean {

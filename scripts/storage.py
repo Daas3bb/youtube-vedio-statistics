@@ -176,7 +176,10 @@ def import_from_csv(videos_csv: Path, history_csv: Path | None = None) -> None:
                 vid = row.get("video_id", "").strip()
                 if not vid or vid in existing_ids:
                     continue
-                data["videos"].append({k: row.get(k, "") for k in VIDEO_FIELDS})
+                entry = {k: row.get(k, "") for k in VIDEO_FIELDS}
+                if not (entry.get("created_at") or "").strip():
+                    entry["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                data["videos"].append(entry)
                 existing_ids.add(vid)
 
     if history_csv and history_csv.exists():
