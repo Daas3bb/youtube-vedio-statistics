@@ -339,6 +339,16 @@
       "channel_title": "PlebLab",
       "status": "active",
       "created_at": ""
+    },
+    {
+      "video_id": "7DRO4rEIHDk",
+      "title": "The Complete SEO & AI SEO Course for 2026 (Full Beginner’s Guide)",
+      "video_url": "https://www.youtube.com/watch?v=7DRO4rEIHDk",
+      "thumbnail_url": "https://i.ytimg.com/vi/7DRO4rEIHDk/mqdefault.jpg",
+      "publish_time": "2026-04-16",
+      "channel_title": "Surfer Academy",
+      "status": "active",
+      "created_at": "2026-06-08 18:45:14"
     }
   ],
   "history": [
@@ -2573,6 +2583,15 @@
       "like_count": "9851",
       "comment_count": "229",
       "created_at": "2026-06-08 10:44:03"
+    },
+    {
+      "video_id": "7DRO4rEIHDk",
+      "snapshot_time": "2026-06-08 10:45:33",
+      "snapshot_bucket": "2026-06-08 10:00:00",
+      "view_count": "39065",
+      "like_count": "1411",
+      "comment_count": "88",
+      "created_at": "2026-06-08 10:45:33"
     }
   ]
 }
