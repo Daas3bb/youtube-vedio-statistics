@@ -32,6 +32,11 @@ export function isTodayOnlyFilter(from: string, to: string): boolean {
   return from === today && to === today;
 }
 
+/** 「今天」保留小时快照；「近7天」「全部」等按日取最晚一条 */
+export function shouldCollapseDailySnapshots(from: string, to: string): boolean {
+  return !isTodayOnlyFilter(from, to);
+}
+
 /** 非「今天」筛选时，每个日期只保留当天最后一条快照 */
 export function collapseDailySnapshots(history: HistoryPoint[]): HistoryPoint[] {
   const byDay = new Map<string, HistoryPoint>();
@@ -54,7 +59,7 @@ export function filterHistoryForDetail(
   to: string
 ): HistoryPoint[] {
   const ranged = sortByTime(filterHistory(history, from, to));
-  if (isTodayOnlyFilter(from, to)) return ranged;
+  if (!shouldCollapseDailySnapshots(from, to)) return ranged;
   return collapseDailySnapshots(ranged);
 }
 

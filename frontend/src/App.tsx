@@ -60,6 +60,7 @@ import {
   computeDeltas,
   daysAgoLocal,
   filterHistoryForDetail,
+  isTodayOnlyFilter,
   rangeStats,
   todayLocal,
   type HistoryPoint,
@@ -439,7 +440,7 @@ export default function App() {
         return;
       }
 
-      appendLocalSnapshot(stats);
+      const snap = appendLocalSnapshot(stats);
       updateLocalVideoMetadata(selectedId, {
         title: stats.title,
         channel_title: stats.channel_title,
@@ -454,7 +455,7 @@ export default function App() {
           view_count: stats.view_count,
           like_count: stats.like_count,
           comment_count: stats.comment_count,
-          time: new Date().toISOString().slice(0, 16).replace("T", " "),
+          time: snap.snapshot_time.slice(0, 16),
         },
       }));
 
@@ -473,6 +474,9 @@ export default function App() {
 
       const serverDetail = await fetchVideoDetail(selectedId).catch(() => null);
       setDetail(buildMergedDetail(selectedId, serverDetail, videoMeta, stats));
+      const today = todayLocal();
+      setDetailDateFrom(today);
+      setDetailDateTo(today);
 
       if (import.meta.env.DEV) {
         showToast("正在写入 store.json 并重建 site.json…", 8000);
@@ -578,6 +582,8 @@ export default function App() {
   const detailDeltasFiltered = computeDeltas(detailHistoryFiltered);
   const detailRangeKpi = rangeStats(detailHistoryFiltered);
   const hasDateFilter = Boolean(detailDateFrom || detailDateTo);
+  const isTodayView = isTodayOnlyFilter(detailDateFrom, detailDateTo);
+  const isDailyCollapsedView = hasDateFilter && !isTodayView;
 
   const visibleDashboard = useMemo(() => {
     if (!dashboard) return null;
@@ -931,12 +937,19 @@ export default function App() {
               >
                 全部
               </button>
-              {hasDateFilter && (
-                <span className="detail-date-hint">
-                  已筛选 {detailDateFrom || "…"} ~ {detailDateTo || "…"} ·{" "}
-                  {detailHistoryFiltered.length} 条快照
-                </span>
-              )}
+              <span className="detail-date-hint">
+                {hasDateFilter ? (
+                  <>
+                    已筛选 {detailDateFrom || "…"} ~ {detailDateTo || "…"} ·{" "}
+                    {detailHistoryFiltered.length} 条快照
+                    {isDailyCollapsedView ? "（每日取最晚）" : isTodayView ? "（按小时）" : ""}
+                  </>
+                ) : (
+                  <>
+                    全部 · {detailHistoryFiltered.length} 条快照（每日取最晚）
+                  </>
+                )}
+              </span>
             </div>
           )}
 
@@ -944,24 +957,27 @@ export default function App() {
             <div className="kpi-grid" style={{ marginBottom: 16 }}>
               <div className="kpi-card">
                 <div className="label">
-                  {hasDateFilter ? "期末播放" : "当前播放"}
+                  {isTodayView || !hasDateFilter ? "当前播放" : "期末播放"}
                 </div>
                 <div className="value">{formatNum(detailRangeKpi.view_count)}</div>
-                {hasDateFilter && detailRangeKpi.delta_views > 0 && (
+                {isDailyCollapsedView && detailRangeKpi.delta_views > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_views)}</div>
+                )}
+                {isTodayView && detailRangeKpi.snapshot_time && (
+                  <div className="kpi-sub">{detailRangeKpi.snapshot_time.slice(5, 16)}</div>
                 )}
               </div>
               <div className="kpi-card">
-                <div className="label">{hasDateFilter ? "期末点赞" : "点赞"}</div>
+                <div className="label">{isTodayView || !hasDateFilter ? "当前点赞" : "期末点赞"}</div>
                 <div className="value">{formatNum(detailRangeKpi.like_count)}</div>
-                {hasDateFilter && detailRangeKpi.delta_likes > 0 && (
+                {isDailyCollapsedView && detailRangeKpi.delta_likes > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_likes)}</div>
                 )}
               </div>
               <div className="kpi-card">
-                <div className="label">{hasDateFilter ? "期末评论" : "评论"}</div>
+                <div className="label">{isTodayView || !hasDateFilter ? "当前评论" : "期末评论"}</div>
                 <div className="value">{formatNum(detailRangeKpi.comment_count)}</div>
-                {hasDateFilter && detailRangeKpi.delta_comments > 0 && (
+                {isDailyCollapsedView && detailRangeKpi.delta_comments > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_comments)}</div>
                 )}
               </div>

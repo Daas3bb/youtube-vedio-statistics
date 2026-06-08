@@ -13,12 +13,14 @@ export interface LocalSnapshot {
   comment_count: number;
 }
 
-function bucketTime(date = new Date()): string {
+export function snapshotTimeNow(date = new Date()): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, "0");
   const d = String(date.getDate()).padStart(2, "0");
-  const h = String(date.getHours()).padStart(2, "0");
-  return `${y}-${m}-${d} ${h}:00:00`;
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
 }
 
 function loadAll(): LocalSnapshot[] {
@@ -37,7 +39,7 @@ function saveAll(rows: LocalSnapshot[]): void {
 export function appendLocalSnapshot(stats: YoutubeVideoStats): LocalSnapshot {
   const snap: LocalSnapshot = {
     video_id: stats.video_id,
-    snapshot_time: bucketTime(),
+    snapshot_time: snapshotTimeNow(),
     view_count: stats.view_count,
     like_count: stats.like_count,
     comment_count: stats.comment_count,
