@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import {
   clearSiteCache,
@@ -141,6 +141,8 @@ export default function App() {
   const [rankSortBy, setRankSortBy] = useState<RankSortKey>("view_count");
   const [rankSortOrder, setRankSortOrder] = useState<RankSortOrder>("desc");
   const [panelOrder, setPanelOrder] = useState<PanelId[]>(() => loadPanelOrder());
+  const serverDetailRef = useRef<Record<string, VideoDetail | null>>({});
+  const lastSelectedIdRef = useRef("");
 
   const videos = mergeVideos(serverVideos, localVideos).filter(
     (video) => !hiddenVideoIds.has(video.video_id)
@@ -448,7 +450,6 @@ export default function App() {
         publish_time: stats.publish_time,
         status: "active",
       });
-      setLocalVideos(loadLocalVideos());
       setLiveStats((prev) => ({
         ...prev,
         [selectedId]: {
@@ -459,24 +460,7 @@ export default function App() {
         },
       }));
 
-      const videoMeta =
-        videos.find((v) => v.video_id === selectedId) ??
-        ({
-          video_id: selectedId,
-          title: stats.title,
-          video_url: `https://www.youtube.com/watch?v=${selectedId}`,
-          thumbnail_url: stats.thumbnail_url,
-          publish_time: stats.publish_time,
-          channel_title: stats.channel_title,
-          status: "active",
-          created_at: "",
-        } as Video);
-
-      const serverDetail = await fetchVideoDetail(selectedId).catch(() => null);
-      setDetail(buildMergedDetail(selectedId, serverDetail, videoMeta, stats));
-      const today = todayLocal();
-      setDetailDateFrom(today);
-      setDetailDateTo(today);
+      setLocalVideos(loadLocalVideos());
 
       if (import.meta.env.DEV) {
         showToast("正在写入 store.json 并重建 site.json…", 8000);
@@ -527,49 +511,54 @@ export default function App() {
       setDetail(null);
       setDetailDateFrom("");
       setDetailDateTo("");
+      lastSelectedIdRef.current = "";
       return;
     }
-    setDetailDateFrom("");
-    setDetailDateTo("");
-    fetchVideoDetail(selectedId)
-      .then((d) => {
-        const videoMeta =
-          localVideos.find((item) => item.video_id === selectedId) ??
-          serverVideos.find((item) => item.video_id === selectedId);
-        if (videoMeta) {
-          setDetail(
-            buildMergedDetail(
-              selectedId,
-              d && typeof d === "object"
-                ? {
-                    ...d,
-                    history: Array.isArray(d.history) ? d.history : [],
-                    view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
-                  }
-                : null,
-              videoMeta
-            )
-          );
-        } else if (d && typeof d === "object") {
-          setDetail({
-            ...d,
-            history: Array.isArray(d.history) ? d.history : [],
-            view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
-          });
-        } else {
-          setDetail(null);
-        }
-      })
-      .catch(() => {
-        const v =
-          localVideos.find((item) => item.video_id === selectedId) ??
-          serverVideos.find((item) => item.video_id === selectedId);
-        if (v) {
-          setDetail(buildMergedDetail(selectedId, null, v));
-        } else {
-          setDetail(null);
-        }
-      });
+
+    const videoMeta =
+      localVideos.find((item) => item.video_id === selectedId) ??
+      serverVideos.find((item) => item.video_id === selectedId);
+
+    const selectionChanged = lastSelectedIdRef.current !== selectedId;
+    if (selectionChanged) {
+      lastSelectedIdRef.current = selectedId;
+      setDetailDateFrom("");
+      setDetailDateTo("");
+
+      fetchVideoDetail(selectedId)
+        .then((d) => {
+          const normalized =
+            d && typeof d === "object"
+              ? {
+                  ...d,
+                  history: Array.isArray(d.history) ? d.history : [],
+                  view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
+                }
+              : null;
+          serverDetailRef.current[selectedId] = normalized;
+          if (videoMeta) {
+            setDetail(buildMergedDetail(selectedId, normalized, videoMeta));
+          } else if (normalized) {
+            setDetail(normalized);
+          } else {
+            setDetail(null);
+          }
+        })
+        .catch(() => {
+          serverDetailRef.current[selectedId] = null;
+          if (videoMeta) {
+            setDetail(buildMergedDetail(selectedId, null, videoMeta));
+          } else {
+            setDetail(null);
+          }
+        });
+      return;
+    }
+
+    if (!videoMeta) return;
+    setDetail(
+      buildMergedDetail(selectedId, serverDetailRef.current[selectedId] ?? null, videoMeta)
+    );
   }, [selectedId, localVideos, serverVideos]);
 
   const detailHistoryAll: HistoryPoint[] = detail?.history ?? [];
