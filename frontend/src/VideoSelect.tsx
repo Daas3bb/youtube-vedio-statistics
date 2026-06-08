@@ -10,7 +10,7 @@ interface VideoSelectProps {
   searchable?: boolean;
 }
 
-function matchVideo(video: Video, query: string) {
+export function matchVideo(video: Video, query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   return (

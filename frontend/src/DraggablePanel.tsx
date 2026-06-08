@@ -51,6 +51,7 @@ export function DraggablePanel({ id, onReorder, children }: DraggablePanelProps)
 
   return (
     <section
+      id={`panel-${id}`}
       className={`section draggable-panel${dragOver ? " drag-over" : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

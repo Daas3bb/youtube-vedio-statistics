@@ -1,36 +1,48 @@
 export type PanelId = "detail" | "videos" | "rankings";
 
-export const DEFAULT_PANEL_ORDER: PanelId[] = ["detail", "videos", "rankings"];
+export const DEFAULT_PAGE: PanelId = "detail";
 
-const STORAGE_KEY = "kol-dashboard-panel-order";
+const PAGE_LABELS: Record<PanelId, string> = {
+  detail: "视频详情",
+  videos: "视频管理",
+  rankings: "播放量排行",
+};
 
-export function loadPanelOrder(): PanelId[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [...DEFAULT_PANEL_ORDER];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [...DEFAULT_PANEL_ORDER];
-    const valid = parsed.filter(
-      (id): id is PanelId =>
-        id === "detail" || id === "videos" || id === "rankings"
-    );
-    const missing = DEFAULT_PANEL_ORDER.filter((id) => !valid.includes(id));
-    return valid.length ? [...valid, ...missing] : [...DEFAULT_PANEL_ORDER];
-  } catch {
-    return [...DEFAULT_PANEL_ORDER];
+export function pageLabel(page: PanelId): string {
+  return PAGE_LABELS[page];
+}
+
+export function pageFromHash(hash = window.location.hash): PanelId {
+  const path = hash.replace(/^#\/?/, "").split("?")[0];
+  if (path === "videos") return "videos";
+  if (path === "rankings") return "rankings";
+  return DEFAULT_PAGE;
+}
+
+export function hashFromPage(page: PanelId): string {
+  if (page === DEFAULT_PAGE) return "#/";
+  return `#/${page}`;
+}
+
+export function navigateToPage(page: PanelId) {
+  const next = hashFromPage(page);
+  if (window.location.hash !== next) {
+    window.location.hash = next;
   }
 }
 
-export function savePanelOrder(order: PanelId[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(order));
+const VIDEO_LIST_PAGE_SIZE_KEY = "kol-video-list-page-size";
+
+export function loadVideoListPageSize(defaultSize: number, maxSize: number): number {
+  try {
+    const size = Number.parseInt(localStorage.getItem(VIDEO_LIST_PAGE_SIZE_KEY) ?? "", 10);
+    if (!Number.isFinite(size) || size < 1 || size > maxSize) return defaultSize;
+    return size;
+  } catch {
+    return defaultSize;
+  }
 }
 
-export function reorderPanels(order: PanelId[], fromId: PanelId, toId: PanelId): PanelId[] {
-  const from = order.indexOf(fromId);
-  const to = order.indexOf(toId);
-  if (from < 0 || to < 0 || from === to) return order;
-  const next = [...order];
-  next.splice(from, 1);
-  next.splice(to, 0, fromId);
-  return next;
+export function saveVideoListPageSize(size: number) {
+  localStorage.setItem(VIDEO_LIST_PAGE_SIZE_KEY, String(size));
 }

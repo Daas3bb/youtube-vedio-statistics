@@ -11,7 +11,7 @@ import {
   type VideoDetail,
 } from "./api";
 import { Thumbnail } from "./Thumbnail";
-import { VideoSelect } from "./VideoSelect";
+import { matchVideo, VideoSelect } from "./VideoSelect";
 import {
   addHiddenVideoIds,
   addLocalVideos,
@@ -35,7 +35,7 @@ import {
   formatGithubSyncError,
   isGithubSyncReady,
   removeVideosFromGithub,
-  triggerCollectWorkflow,
+  runCollectNow,
 } from "./githubCsvSync";
 import { runLocalCollectScripts } from "./localCollect";
 import { GithubSyncPanel } from "./GithubSyncPanel";
@@ -46,13 +46,14 @@ import {
   buildMergedDetail,
   removeLocalSnapshotsByVideoIds,
 } from "./localSnapshots";
-import { fetchYoutubeVideoStats } from "./youtubeCollect";
+import { fetchYoutubeVideoStats, type YoutubeVideoStats } from "./youtubeCollect";
 import { isYoutubeApiReady, loadYoutubeApiKey } from "./youtubeSettings";
-import { DraggablePanel } from "./DraggablePanel";
 import {
-  loadPanelOrder,
-  reorderPanels,
-  savePanelOrder,
+  loadVideoListPageSize,
+  navigateToPage,
+  pageFromHash,
+  pageLabel,
+  saveVideoListPageSize,
   type PanelId,
 } from "./dashboardLayout";
 import {
@@ -82,6 +83,35 @@ function engagementRates(views: number, likes: number, comments: number) {
 
 type RankSortKey = "view_count" | "like_count" | "comment_count";
 type RankSortOrder = "asc" | "desc";
+
+const DEFAULT_VIDEO_LIST_PAGE_SIZE = 5;
+const MAX_VIDEO_LIST_PAGE_SIZE = 100;
+const RANK_LIST_PAGE_SIZE = 10;
+
+function createdAtTimestamp(createdAt: string): number {
+  const t = Date.parse((createdAt || "").replace(" ", "T"));
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function buildPaginationItems(current: number, total: number): Array<number | "ellipsis"> {
+  if (total <= 1) return [1];
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([1, total, current, current - 1, current + 1]);
+  const sorted = [...pages].filter((page) => page >= 1 && page <= total).sort((a, b) => a - b);
+  const items: Array<number | "ellipsis"> = [];
+
+  sorted.forEach((page, index) => {
+    if (index > 0 && page - sorted[index - 1] > 1) {
+      items.push("ellipsis");
+    }
+    items.push(page);
+  });
+
+  return items;
+}
 
 function trendAxisBounds(values: number[]) {
   if (!values.length) return {};
@@ -126,6 +156,7 @@ export default function App() {
   const [batchAdding, setBatchAdding] = useState(false);
   const [adding, setAdding] = useState(false);
   const [collecting, setCollecting] = useState(false);
+  const [collectingAll, setCollectingAll] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(() => loadHiddenVideoIds());
@@ -140,7 +171,18 @@ export default function App() {
   >({});
   const [rankSortBy, setRankSortBy] = useState<RankSortKey>("view_count");
   const [rankSortOrder, setRankSortOrder] = useState<RankSortOrder>("desc");
-  const [panelOrder, setPanelOrder] = useState<PanelId[]>(() => loadPanelOrder());
+  const [videoListSearch, setVideoListSearch] = useState("");
+  const [videoListPage, setVideoListPage] = useState(1);
+  const [videoListPageSize, setVideoListPageSize] = useState(() =>
+    loadVideoListPageSize(DEFAULT_VIDEO_LIST_PAGE_SIZE, MAX_VIDEO_LIST_PAGE_SIZE)
+  );
+  const [videoListPageSizeInput, setVideoListPageSizeInput] = useState(() =>
+    String(loadVideoListPageSize(DEFAULT_VIDEO_LIST_PAGE_SIZE, MAX_VIDEO_LIST_PAGE_SIZE))
+  );
+  const [videoListJumpInput, setVideoListJumpInput] = useState("");
+  const [rankListPage, setRankListPage] = useState(1);
+  const [rankListJumpInput, setRankListJumpInput] = useState("");
+  const [activePage, setActivePage] = useState<PanelId>(() => pageFromHash());
   const serverDetailRef = useRef<Record<string, VideoDetail | null>>({});
   const lastSelectedIdRef = useRef("");
 
@@ -148,9 +190,73 @@ export default function App() {
     (video) => !hiddenVideoIds.has(video.video_id)
   );
 
+  const videosSortedByNewest = useMemo(
+    () =>
+      [...videos].sort(
+        (a, b) => createdAtTimestamp(b.created_at) - createdAtTimestamp(a.created_at)
+      ),
+    [videos]
+  );
+
+  const videosForList = useMemo(() => {
+    const query = videoListSearch.trim();
+    if (!query) return videosSortedByNewest;
+    return videosSortedByNewest.filter((video) => matchVideo(video, query));
+  }, [videosSortedByNewest, videoListSearch]);
+
+  const videoListTotalPages = Math.max(
+    1,
+    Math.ceil(videosForList.length / videoListPageSize)
+  );
+
+  const pagedVideos = useMemo(() => {
+    const start = (videoListPage - 1) * videoListPageSize;
+    return videosForList.slice(start, start + videoListPageSize);
+  }, [videosForList, videoListPage, videoListPageSize]);
+
+  useEffect(() => {
+    setVideoListPage(1);
+  }, [videoListSearch]);
+
+  useEffect(() => {
+    if (videoListPage > videoListTotalPages) {
+      setVideoListPage(videoListTotalPages);
+    }
+  }, [videoListPage, videoListTotalPages]);
+
+  const videoListPageItems = useMemo(
+    () => buildPaginationItems(videoListPage, videoListTotalPages),
+    [videoListPage, videoListTotalPages]
+  );
+
   const showToast = (msg: string, durationMs = 3500) => {
     setToast(msg);
     setTimeout(() => setToast(""), durationMs);
+  };
+
+  const handleVideoListJump = () => {
+    const page = Number.parseInt(videoListJumpInput.trim(), 10);
+    if (!Number.isFinite(page) || page < 1 || page > videoListTotalPages) {
+      showToast(`请输入 1–${videoListTotalPages} 之间的页码`);
+      return;
+    }
+    setVideoListPage(page);
+    setVideoListJumpInput("");
+  };
+
+  const applyVideoListPageSize = () => {
+    const size = Number.parseInt(videoListPageSizeInput.trim(), 10);
+    if (!Number.isFinite(size) || size < 1 || size > MAX_VIDEO_LIST_PAGE_SIZE) {
+      showToast(`每页条数请输入 1–${MAX_VIDEO_LIST_PAGE_SIZE} 之间的整数`);
+      setVideoListPageSizeInput(String(videoListPageSize));
+      return;
+    }
+    if (size !== videoListPageSize) {
+      setVideoListPageSize(size);
+      setVideoListPage(1);
+    }
+    saveVideoListPageSize(size);
+    setVideoListPageSizeInput(String(size));
   };
 
   const refresh = useCallback(async () => {
@@ -211,7 +317,15 @@ export default function App() {
         dashData = applyDeletionToDashboard(dashData, hiddenIds);
       }
       setDashboard(dashData);
-      if (!selectedId && list.length) setSelectedId(list[0].video_id);
+      if (!selectedId && list.length) {
+        const visible = mergeVideos(list, loadLocalVideos()).filter(
+          (v) => !loadHiddenVideoIds().has(v.video_id)
+        );
+        const newest = [...visible].sort(
+          (a, b) => createdAtTimestamp(b.created_at) - createdAtTimestamp(a.created_at)
+        )[0];
+        if (newest) setSelectedId(newest.video_id);
+      }
     } catch (e) {
       showToast("数据未加载，请先运行 python scripts/build_static.py");
       console.error(e);
@@ -255,14 +369,195 @@ export default function App() {
     return "failed";
   };
 
+  const clearLiveStatsForIds = (videoIds: string[]) => {
+    if (!videoIds.length) return;
+    const drop = new Set(videoIds);
+    setLiveStats((prev) => {
+      const next = { ...prev };
+      for (const id of drop) delete next[id];
+      return next;
+    });
+  };
+
+  const persistCollectedStatsToFile = async (
+    onProgress?: (message: string) => void
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    if (import.meta.env.DEV) {
+      const persisted = await runLocalCollectScripts();
+      if (persisted.ok) return { ok: true };
+      return { ok: false, error: persisted.error };
+    }
+    if (githubSyncReady) {
+      const result = await runCollectNow(undefined, onProgress);
+      if (result.ok) return { ok: true };
+      return { ok: false, error: formatGithubSyncError(result.reason) };
+    }
+    return { ok: false, error: "未配置数据文件写入方式" };
+  };
+
+  const applyFetchedYoutubeStats = (stats: YoutubeVideoStats) => {
+    const snap = appendLocalSnapshot(stats);
+    updateLocalVideoMetadata(stats.video_id, {
+      title: stats.title,
+      channel_title: stats.channel_title,
+      thumbnail_url: stats.thumbnail_url,
+      publish_time: stats.publish_time,
+      status: "active",
+    });
+    return {
+      view_count: stats.view_count,
+      like_count: stats.like_count,
+      comment_count: stats.comment_count,
+      time: snap.snapshot_time.slice(0, 16),
+    };
+  };
+
+  const collectStatsForVideoIds = async (
+    videoIds: string[],
+    source: "import" | "manual" | "batch" = "import"
+  ) => {
+    const uniqueIds = [...new Set(videoIds.filter(Boolean))];
+    if (!uniqueIds.length) return;
+
+    const apiKey = loadYoutubeApiKey();
+    if (!apiKey) {
+      if (source === "manual") {
+        showToast("请先点击「配置 YouTube 即时采集」并保存 API Key（AIzaSy…）", 6000);
+      } else if (source === "batch") {
+        showToast("请先配置 YouTube API Key 后再使用「立即采集」", 6000);
+      } else {
+        showToast("视频已添加。配置 API Key 后可自动拉取播放数据", 5000);
+      }
+      return;
+    }
+
+    try {
+      if (source === "batch") {
+        showToast(`正在采集全部 ${uniqueIds.length} 个视频的播放数据…`, 8000);
+      } else if (source === "manual") {
+        showToast("正在请求 YouTube API…", 5000);
+      } else if (uniqueIds.length === 1) {
+        showToast("正在拉取播放数据…", 4000);
+      } else {
+        showToast(`正在拉取 ${uniqueIds.length} 个视频的播放数据…`, 5000);
+      }
+
+      const statsMap = await fetchYoutubeVideoStats(uniqueIds, apiKey);
+      const statsList = uniqueIds
+        .map((id) => statsMap[id])
+        .filter((stats): stats is YoutubeVideoStats => Boolean(stats));
+
+      if (!statsList.length) {
+        showToast(
+          source === "manual" && uniqueIds.length === 1
+            ? "YouTube 未返回该视频数据，请检查 Video ID 是否有效"
+            : "YouTube 未返回视频数据",
+          6000
+        );
+        return;
+      }
+
+      const livePatch: Record<
+        string,
+        { view_count: number; like_count: number; comment_count: number; time: string }
+      > = {};
+      for (const stats of statsList) {
+        livePatch[stats.video_id] = applyFetchedYoutubeStats(stats);
+      }
+      setLiveStats((prev) => ({ ...prev, ...livePatch }));
+      setLocalVideos(loadLocalVideos());
+
+      const missed = uniqueIds.length - statsList.length;
+      const isSingleManual = source === "manual" && uniqueIds.length === 1;
+      const firstStats = statsList[0];
+      const collectedIds = statsList.map((stats) => stats.video_id);
+      const canPersistToFile = import.meta.env.DEV || githubSyncReady;
+
+      let persistResult: { ok: true } | { ok: false; error: string } | null = null;
+      if (canPersistToFile) {
+        showToast(
+          import.meta.env.DEV
+            ? "正在写入 store.json 并重建 site.json…"
+            : "正在等待 GitHub Actions 写入数据文件…",
+          8000
+        );
+        persistResult = await persistCollectedStatsToFile((msg) => showToast(msg, 6000));
+        if (persistResult.ok) {
+          clearLiveStatsForIds(collectedIds);
+          clearSiteCache();
+          await refresh();
+        }
+      }
+
+      const wroteToFile = persistResult?.ok === true;
+
+      if (isSingleManual) {
+        if (wroteToFile) {
+          showToast(
+            import.meta.env.DEV
+              ? `已写入 store.json：${formatNum(firstStats.view_count)} 播放 · ${formatNum(firstStats.like_count)} 赞`
+              : `已写入数据文件：${formatNum(firstStats.view_count)} 播放 · ${formatNum(firstStats.like_count)} 赞`,
+            6000
+          );
+        } else if (canPersistToFile) {
+          showToast(
+            `采集成功，但写入数据文件失败：${persistResult && !persistResult.ok ? persistResult.error : "未知错误"}（列表仍显示「即时」）`,
+            8000
+          );
+        } else {
+          showToast(
+            `已采集：${formatNum(firstStats.view_count)} 播放 · ${formatNum(firstStats.like_count)} 赞（未写入数据文件，显示「即时」）`,
+            6000
+          );
+        }
+        return;
+      }
+
+      if (wroteToFile) {
+        showToast(
+          source === "batch"
+            ? missed > 0
+              ? `已全部采集 ${statsList.length} 个视频并写入数据文件（${missed} 个未返回）`
+              : `已全部采集 ${statsList.length} 个视频并写入数据文件`
+            : missed > 0
+              ? `已拉取 ${statsList.length} 个视频并写入数据文件（${missed} 个未返回）`
+              : `已拉取 ${statsList.length} 个视频的播放数据并写入数据文件`,
+          6000
+        );
+      } else if (canPersistToFile) {
+        const persistError =
+          persistResult && !persistResult.ok ? persistResult.error : "未知错误";
+        showToast(
+          `已采集 ${statsList.length} 个视频，但写入数据文件失败：${persistError}（列表仍显示「即时」）`,
+          7000
+        );
+      } else {
+        showToast(
+          source === "batch"
+            ? missed > 0
+              ? `已采集 ${statsList.length} 个视频（${missed} 个未返回，未写入数据文件，显示「即时」）`
+              : `已采集 ${statsList.length} 个视频（未写入数据文件，显示「即时」）`
+            : missed > 0
+              ? `已采集 ${statsList.length} 个视频（${missed} 个未返回，未写入数据文件，显示「即时」）`
+              : `已采集 ${statsList.length} 个视频（未写入数据文件，显示「即时」）`,
+          5000
+        );
+      }
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "采集失败", 8000);
+    }
+  };
+
   const persistAddedVideos = async (added: Video[]) => {
     const ids = added.map((v) => v.video_id);
     if (!githubSyncReady) {
       downloadVideosCsv(ids, serverVideoIds);
       showToast("已添加（仅本机）。配置 GitHub 同步后点「同步 GitHub」", 6000);
+      await collectStatsForVideoIds(ids, "import");
       return;
     }
     await syncVideosToGithub(ids);
+    await collectStatsForVideoIds(ids, "import");
   };
 
   const handleDeleteVideo = async (video: Video) => {
@@ -387,6 +682,7 @@ export default function App() {
 
       setLocalVideos(loadLocalVideos());
       setInput("");
+      setVideoListPage(1);
       setSelectedId(video.video_id);
       await persistAddedVideos(result.added);
     } finally {
@@ -415,6 +711,7 @@ export default function App() {
 
       setBatchInput("");
       setShowBatchForm(false);
+      setVideoListPage(1);
       setSelectedId(result.added[0].video_id);
 
       await persistAddedVideos(result.added);
@@ -424,87 +721,45 @@ export default function App() {
   };
 
   const handleCollectNow = async () => {
-    if (!selectedId || collecting) return;
-
-    const apiKey = loadYoutubeApiKey();
-    if (!apiKey) {
-      showToast("请先点击「配置 YouTube 即时采集」并保存 API Key（AIzaSy…）", 6000);
-      return;
-    }
+    if (!selectedId || collecting || collectingAll) return;
 
     setCollecting(true);
     try {
-      showToast("正在请求 YouTube API…", 5000);
-      const statsMap = await fetchYoutubeVideoStats([selectedId], apiKey);
-      const stats = statsMap[selectedId];
-      if (!stats) {
-        showToast("YouTube 未返回该视频数据，请检查 Video ID 是否有效", 6000);
-        return;
-      }
-
-      const snap = appendLocalSnapshot(stats);
-      updateLocalVideoMetadata(selectedId, {
-        title: stats.title,
-        channel_title: stats.channel_title,
-        thumbnail_url: stats.thumbnail_url,
-        publish_time: stats.publish_time,
-        status: "active",
-      });
-      setLiveStats((prev) => ({
-        ...prev,
-        [selectedId]: {
-          view_count: stats.view_count,
-          like_count: stats.like_count,
-          comment_count: stats.comment_count,
-          time: snap.snapshot_time.slice(0, 16),
-        },
-      }));
-
-      setLocalVideos(loadLocalVideos());
-
-      if (import.meta.env.DEV) {
-        showToast("正在写入 store.json 并重建 site.json…", 8000);
-        const persisted = await runLocalCollectScripts();
-        if (persisted.ok) {
-          showToast(
-            `已写入 store.json：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞`,
-            6000
-          );
-        } else {
-          showToast(
-            `本机快照已保存，但写入 store.json 失败：${persisted.error}`,
-            8000
-          );
-        }
-      } else if (githubSyncReady) {
-        const triggered = await triggerCollectWorkflow();
-        if (triggered.ok) {
-          showToast(
-            `已更新本机显示，并触发 GitHub Actions 采集（约数分钟后云端同步）`,
-            7000
-          );
-        } else {
-          showToast(
-            `本机已更新：${formatNum(stats.view_count)} 播放（触发云端采集失败：${formatGithubSyncError(triggered.reason)}）`,
-            7000
-          );
-        }
-      } else {
-        showToast(
-          `已更新：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞（仅本机，未写入 store.json）`,
-          6000
-        );
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "采集失败", 8000);
+      await collectStatsForVideoIds([selectedId], "manual");
     } finally {
       setCollecting(false);
+    }
+  };
+
+  const handleCollectAllVideos = async () => {
+    if (collectingAll || collecting || !videos.length) return;
+
+    setCollectingAll(true);
+    try {
+      await collectStatsForVideoIds(
+        videos.map((video) => video.video_id),
+        "batch"
+      );
+    } finally {
+      setCollectingAll(false);
     }
   };
 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    const onHashChange = () => setActivePage(pageFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedId && videosSortedByNewest.length) {
+      setSelectedId(videosSortedByNewest[0].video_id);
+    }
+  }, [selectedId, videosSortedByNewest]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -586,6 +841,51 @@ export default function App() {
       rankSortOrder === "desc" ? b[rankSortBy] - a[rankSortBy] : a[rankSortBy] - b[rankSortBy]
     );
   }, [visibleDashboard, rankSortBy, rankSortOrder]);
+
+  const rankListTotalPages = Math.max(1, Math.ceil(sortedRankings.length / RANK_LIST_PAGE_SIZE));
+
+  const pagedRankings = useMemo(() => {
+    const start = (rankListPage - 1) * RANK_LIST_PAGE_SIZE;
+    return sortedRankings.slice(start, start + RANK_LIST_PAGE_SIZE);
+  }, [sortedRankings, rankListPage]);
+
+  const rankListPageItems = useMemo(
+    () => buildPaginationItems(rankListPage, rankListTotalPages),
+    [rankListPage, rankListTotalPages]
+  );
+
+  useEffect(() => {
+    if (rankListPage > rankListTotalPages) {
+      setRankListPage(rankListTotalPages);
+    }
+  }, [rankListPage, rankListTotalPages]);
+
+  useEffect(() => {
+    setRankListPage(1);
+  }, [rankSortBy, rankSortOrder]);
+
+  const handleRankListJump = () => {
+    const page = Number.parseInt(rankListJumpInput.trim(), 10);
+    if (!Number.isFinite(page) || page < 1 || page > rankListTotalPages) {
+      showToast(`请输入 1–${rankListTotalPages} 之间的页码`);
+      return;
+    }
+    setRankListPage(page);
+    setRankListJumpInput("");
+  };
+
+  const openVideoDetail = (videoId: string) => {
+    setSelectedId(videoId);
+    navigateToPage("detail");
+    setActivePage("detail");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleNavigate = (page: PanelId) => {
+    navigateToPage(page);
+    setActivePage(page);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const detailViewsOption = detailHistoryFiltered.length
     ? (() => {
@@ -795,14 +1095,6 @@ export default function App() {
 
   const kpi = visibleDashboard?.kpi;
 
-  const handlePanelReorder = (fromId: PanelId, toId: PanelId) => {
-    setPanelOrder((prev) => {
-      const next = reorderPanels(prev, fromId, toId);
-      savePanelOrder(next);
-      return next;
-    });
-  };
-
   return (
     <div className="app">
       <div className="app-container">
@@ -835,11 +1127,27 @@ export default function App() {
         <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
       </div>
 
-      {panelOrder.map((panelId) => (
-        <DraggablePanel key={panelId} id={panelId} onReorder={handlePanelReorder}>
-          {panelId === "detail" && (
-          <>
-          <h2>单视频详情</h2>
+      <div className="app-layout">
+        <aside className="app-sidebar">
+          <nav className="app-sidebar-nav" aria-label="主导航">
+            {(["detail", "videos", "rankings"] as PanelId[]).map((page) => (
+              <button
+                key={page}
+                type="button"
+                className={`app-nav-item${activePage === page ? " active" : ""}`}
+                aria-current={activePage === page ? "page" : undefined}
+                onClick={() => handleNavigate(page)}
+              >
+                {pageLabel(page)}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <main className="app-main">
+          {activePage === "detail" && (
+          <section className="section app-page" id="panel-detail">
+          <h2>视频详情</h2>
           <div className="detail-select">
             <VideoSelect
               videos={videos}
@@ -852,7 +1160,7 @@ export default function App() {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleCollectNow}
-                disabled={!selectedId || collecting}
+                disabled={!selectedId || collecting || collectingAll}
                 title={
                   youtubeApiReady
                     ? "直接请求 YouTube API 获取最新播放数据（本机快照）"
@@ -998,18 +1306,41 @@ export default function App() {
               </div>
             </div>
           </div>
-          </>
+          </section>
           )}
 
-          {panelId === "videos" && (
-          <>
+          {activePage === "videos" && (
+          <section className="section app-page" id="panel-videos">
         <div className="section-head">
           <h2>视频列表管理</h2>
-          <div className="summary-kpi">
-            <span className="summary-kpi-label">监控视频数</span>
-            <span className="summary-kpi-value">{kpi?.video_count ?? videos.length}</span>
+          <div className="section-head-actions">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleCollectAllVideos}
+              disabled={collectingAll || collecting || !videos.length}
+              title={
+                youtubeApiReady
+                  ? "请求 YouTube API 采集全部视频当前播放数据"
+                  : "需先配置 YouTube API Key"
+              }
+            >
+              {collectingAll ? "采集中…" : "立即采集"}
+            </button>
+            <div className="summary-kpi">
+              <span className="summary-kpi-label">监控视频数</span>
+              <span className="summary-kpi-value">{kpi?.video_count ?? videos.length}</span>
+            </div>
           </div>
         </div>
+        <p className="detail-collect-hint">
+          当 GitHub 每 2 小时定时采集失败时，可点此手动采集全部视频的当前播放数据。
+          {import.meta.env.DEV
+            ? " 本地开发会写入 store.json；线上版会触发 GitHub Actions。"
+            : githubSyncReady
+              ? " 采集后会触发 GitHub Actions 写入云端数据。"
+              : " 配置 GitHub 同步后可写入云端 store.json。"}
+        </p>
         <div className="add-form">
           <input
             placeholder="粘贴 YouTube 链接或 11 位 Video ID"
@@ -1056,6 +1387,27 @@ export default function App() {
             </div>
           </div>
         )}
+        {videos.length > 0 && (
+          <div className="video-list-toolbar">
+            <input
+              type="search"
+              className="video-search-input"
+              placeholder="搜索标题、频道或视频 ID"
+              value={videoListSearch}
+              onChange={(e) => setVideoListSearch(e.target.value)}
+              aria-label="搜索视频"
+            />
+            {videoListSearch.trim() && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setVideoListSearch("")}
+              >
+                清除
+              </button>
+            )}
+          </div>
+        )}
         <div className="table-scroll">
         <table className="video-table">
           <thead>
@@ -1068,7 +1420,14 @@ export default function App() {
             </tr>
           </thead>
           <tbody>
-            {videos.map((v) => {
+            {!pagedVideos.length ? (
+              <tr>
+                <td colSpan={5} className="empty">
+                  {videoListSearch.trim() ? "无匹配视频" : "暂无视频"}
+                </td>
+              </tr>
+            ) : (
+            pagedVideos.map((v) => {
               const rank = visibleDashboard?.rankings.find((r) => r.video_id === v.video_id);
               const live = liveStats[v.video_id];
               const syncLabel = videoSyncLabel(v.video_id, serverVideoIds, githubPendingIds);
@@ -1094,7 +1453,12 @@ export default function App() {
                       <div className="rank-meta">
                         {formatNum(live?.view_count ?? rank?.view_count ?? 0)} 播放 ·{" "}
                         {formatNum(live?.like_count ?? rank?.like_count ?? 0)} 赞
-                        {live && <span className="live-tag"> · 即时</span>}
+                        {live && (
+                          <span className="live-tag" title="尚未写入 store.json / site.json">
+                            {" "}
+                            · 即时
+                          </span>
+                        )}
                       </div>
                     )}
                   </td>
@@ -1105,7 +1469,7 @@ export default function App() {
                       <button
                         className="btn"
                         style={{ padding: "4px 10px", fontSize: "0.8rem" }}
-                        onClick={() => setSelectedId(v.video_id)}
+                        onClick={() => openVideoDetail(v.video_id)}
                       >
                         详情
                       </button>
@@ -1133,18 +1497,106 @@ export default function App() {
                   </td>
                 </tr>
               );
-            })}
+            })
+            )}
           </tbody>
         </table>
         </div>
+        {videos.length > 0 && (
+          <div className="video-list-pagination">
+            <div className="video-list-pagination-meta">
+              <span className="video-list-pagination-info">
+                共 {videosForList.length} 条
+                {videoListSearch.trim() ? `（已筛选，总计 ${videos.length} 条）` : ""}
+                {" · "}第 {videoListPage} / {videoListTotalPages} 页
+              </span>
+              <div className="video-list-pagination-size">
+                <span className="video-list-pagination-jump-label">每页</span>
+                <input
+                  type="number"
+                  className="video-list-pagination-jump-input"
+                  min={1}
+                  max={MAX_VIDEO_LIST_PAGE_SIZE}
+                  value={videoListPageSizeInput}
+                  onChange={(e) => setVideoListPageSizeInput(e.target.value)}
+                  onBlur={applyVideoListPageSize}
+                  onKeyDown={(e) => e.key === "Enter" && applyVideoListPageSize()}
+                  aria-label="每页显示条数"
+                />
+                <span className="video-list-pagination-jump-label">条</span>
+              </div>
+            </div>
+            <div className="video-list-pagination-controls">
+              <button
+                type="button"
+                className="btn"
+                disabled={videoListPage <= 1}
+                onClick={() => setVideoListPage((page) => Math.max(1, page - 1))}
+              >
+                上一页
+              </button>
+              {videoListTotalPages > 1 && (
+                <div className="video-list-pagination-pages" role="navigation" aria-label="视频列表分页">
+                  {videoListPageItems.map((item, index) =>
+                    item === "ellipsis" ? (
+                      <span key={`ellipsis-${index}`} className="video-list-page-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        className={`btn video-list-page-btn${videoListPage === item ? " active" : ""}`}
+                        onClick={() => setVideoListPage(item)}
+                        aria-current={videoListPage === item ? "page" : undefined}
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                className="btn"
+                disabled={videoListPage >= videoListTotalPages}
+                onClick={() =>
+                  setVideoListPage((page) => Math.min(videoListTotalPages, page + 1))
+                }
+              >
+                下一页
+              </button>
+            </div>
+            {videoListTotalPages > 1 && (
+              <div className="video-list-pagination-jump">
+                <span className="video-list-pagination-jump-label">跳至</span>
+                <input
+                  type="number"
+                  className="video-list-pagination-jump-input"
+                  min={1}
+                  max={videoListTotalPages}
+                  value={videoListJumpInput}
+                  placeholder={String(videoListPage)}
+                  onChange={(e) => setVideoListJumpInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleVideoListJump()}
+                  aria-label="跳转页码"
+                />
+                <span className="video-list-pagination-jump-label">页</span>
+                <button type="button" className="btn" onClick={handleVideoListJump}>
+                  跳转
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {!videos.length && (
           <p className="empty">暂无视频，请添加 YouTube 链接开始监控</p>
         )}
-          </>
+          </section>
           )}
 
-          {panelId === "rankings" && (
-          <>
+          {activePage === "rankings" && (
+          <section className="section app-page" id="panel-rankings">
         <div className="section-head">
           <h2>播放量排行榜</h2>
           <div className="rank-sort-bar">
@@ -1181,11 +1633,12 @@ export default function App() {
           </div>
         </div>
         <ul className="rank-list">
-          {sortedRankings.map((r, i) => {
+          {pagedRankings.map((r, i) => {
+            const rankIndex = (rankListPage - 1) * RANK_LIST_PAGE_SIZE + i + 1;
             const rates = engagementRates(r.view_count, r.like_count, r.comment_count);
             return (
               <li key={r.video_id} className="rank-item">
-                <span className={`rank-num ${i < 3 ? "top" : ""}`}>{i + 1}</span>
+                <span className={`rank-num ${rankIndex <= 3 ? "top" : ""}`}>{rankIndex}</span>
                 <Thumbnail videoId={r.video_id} url={r.thumbnail_url} />
                 <div className="rank-info">
                   <div className="rank-title">{r.title}</div>
@@ -1202,13 +1655,81 @@ export default function App() {
             );
           })}
         </ul>
+        {sortedRankings.length > 0 && (
+          <div className="video-list-pagination">
+            <span className="video-list-pagination-info">
+              共 {sortedRankings.length} 条 · 第 {rankListPage} / {rankListTotalPages} 页
+            </span>
+            <div className="video-list-pagination-controls">
+              <button
+                type="button"
+                className="btn"
+                disabled={rankListPage <= 1}
+                onClick={() => setRankListPage((page) => Math.max(1, page - 1))}
+              >
+                上一页
+              </button>
+              {rankListTotalPages > 1 && (
+                <div className="video-list-pagination-pages" role="navigation" aria-label="排行榜分页">
+                  {rankListPageItems.map((item, index) =>
+                    item === "ellipsis" ? (
+                      <span key={`rank-ellipsis-${index}`} className="video-list-page-ellipsis">
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        className={`btn video-list-page-btn${rankListPage === item ? " active" : ""}`}
+                        onClick={() => setRankListPage(item)}
+                        aria-current={rankListPage === item ? "page" : undefined}
+                      >
+                        {item}
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                className="btn"
+                disabled={rankListPage >= rankListTotalPages}
+                onClick={() =>
+                  setRankListPage((page) => Math.min(rankListTotalPages, page + 1))
+                }
+              >
+                下一页
+              </button>
+            </div>
+            {rankListTotalPages > 1 && (
+              <div className="video-list-pagination-jump">
+                <span className="video-list-pagination-jump-label">跳至</span>
+                <input
+                  type="number"
+                  className="video-list-pagination-jump-input"
+                  min={1}
+                  max={rankListTotalPages}
+                  value={rankListJumpInput}
+                  placeholder={String(rankListPage)}
+                  onChange={(e) => setRankListJumpInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRankListJump()}
+                  aria-label="排行榜跳转页码"
+                />
+                <span className="video-list-pagination-jump-label">页</span>
+                <button type="button" className="btn" onClick={handleRankListJump}>
+                  跳转
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {!sortedRankings.length && (
           <p className="empty">采集数据后将显示排行</p>
         )}
-          </>
+          </section>
           )}
-        </DraggablePanel>
-      ))}
+        </main>
+      </div>
 
       </div>
 
