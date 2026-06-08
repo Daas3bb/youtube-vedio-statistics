@@ -1022,6 +1022,18 @@ input {
   border-color: rgba(248, 113, 113, 0.35);
 }
 
+.config-status-badge.run {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.config-status-badge.warn {
+  color: var(--warning);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
 .github-sync-panel {
   margin-bottom: 14px;
 }
@@ -1057,6 +1069,171 @@ input {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.actions-run-summary {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.actions-run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.actions-run-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.actions-run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.actions-run-link {
+  font-size: 0.82rem;
+}
+
+.actions-run-empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.actions-status-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.actions-status-pill.ok {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.actions-status-pill.err {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.actions-status-pill.run {
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.actions-status-pill.pending,
+.actions-status-pill.warn {
+  color: var(--muted);
+  background: var(--surface2);
+  border-color: var(--border);
+}
+
+.actions-job-block {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.actions-job-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.actions-job-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.actions-step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.actions-step-item {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.actions-step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.actions-step-item.ok .actions-step-dot {
+  background: var(--success);
+}
+
+.actions-step-item.err .actions-step-dot {
+  background: var(--accent);
+}
+
+.actions-step-item.run .actions-step-dot {
+  background: var(--accent2);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.actions-step-name {
+  color: var(--text);
+}
+
+.actions-step-status {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.actions-progress {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.actions-panel-error {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .github-sync-hint {

@@ -231,6 +231,155 @@ export async function runCollectNow(
   return waitForCollectWorkflow(settings, previousRunId, 8 * 60 * 1000, onProgress);
 }
 
+export interface CollectWorkflowStep {
+  number: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+}
+
+export interface CollectWorkflowJob {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  steps: CollectWorkflowStep[];
+}
+
+export interface CollectWorkflowRunInfo {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  event: string;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  jobs: CollectWorkflowJob[];
+}
+
+export function collectWorkflowPageUrl(
+  settings: GithubSyncSettings = loadGithubSettings()
+): string {
+  return `https://github.com/${settings.owner}/${settings.repo}/actions/workflows/collect.yml`;
+}
+
+export function formatWorkflowEvent(event: string): string {
+  if (event === "schedule") return "定时";
+  if (event === "workflow_dispatch") return "手动";
+  if (event === "push") return "代码推送";
+  return event;
+}
+
+export function formatWorkflowStatus(status: string, conclusion: string | null): string {
+  if (status === "queued") return "排队中";
+  if (status === "in_progress") return "运行中";
+  if (status === "waiting" || status === "pending" || status === "requested") return "等待中";
+  if (status === "completed") {
+    if (conclusion === "success") return "成功";
+    if (conclusion === "failure") return "失败";
+    if (conclusion === "cancelled") return "已取消";
+    if (conclusion === "skipped") return "已跳过";
+    return conclusion || "已完成";
+  }
+  return status;
+}
+
+export function formatJobStatus(status: string, conclusion: string | null): string {
+  return formatWorkflowStatus(status, conclusion);
+}
+
+export async function fetchLatestCollectWorkflowRun(
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<
+  { ok: true; run: CollectWorkflowRunInfo | null } | { ok: false; reason: string }
+> {
+  if (!isGithubSyncReady(settings)) {
+    return { ok: false, reason: "no_token" };
+  }
+
+  const res = await fetch(
+    githubRepoUrl(settings, "actions/workflows/collect.yml/runs?per_page=1"),
+    { headers: githubAuthHeaders(settings) }
+  );
+  if (!res.ok) {
+    const err = await res.text();
+    return { ok: false, reason: `poll_failed:${res.status}:${err.slice(0, 80)}` };
+  }
+
+  const data = (await res.json()) as {
+    workflow_runs?: Array<{
+      id: number;
+      name: string;
+      status: string;
+      conclusion: string | null;
+      event: string;
+      created_at: string;
+      updated_at: string;
+      html_url: string;
+    }>;
+  };
+
+  const raw = data.workflow_runs?.[0];
+  if (!raw) return { ok: true, run: null };
+
+  const jobsRes = await fetch(
+    githubRepoUrl(settings, `actions/runs/${raw.id}/jobs?per_page=20`),
+    { headers: githubAuthHeaders(settings) }
+  );
+
+  let jobs: CollectWorkflowJob[] = [];
+  if (jobsRes.ok) {
+    const jobsData = (await jobsRes.json()) as {
+      jobs?: Array<{
+        id: number;
+        name: string;
+        status: string;
+        conclusion: string | null;
+        started_at: string | null;
+        completed_at: string | null;
+        steps?: Array<{
+          number: number;
+          name: string;
+          status: string;
+          conclusion: string | null;
+        }>;
+      }>;
+    };
+    jobs = (jobsData.jobs ?? []).map((job) => ({
+      id: job.id,
+      name: job.name,
+      status: job.status,
+      conclusion: job.conclusion,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+      steps: (job.steps ?? []).map((step) => ({
+        number: step.number,
+        name: step.name,
+        status: step.status,
+        conclusion: step.conclusion,
+      })),
+    }));
+  }
+
+  return {
+    ok: true,
+    run: {
+      id: raw.id,
+      name: raw.name,
+      status: raw.status,
+      conclusion: raw.conclusion,
+      event: raw.event,
+      created_at: raw.created_at,
+      updated_at: raw.updated_at,
+      html_url: raw.html_url,
+      jobs,
+    },
+  };
+}
+
 export async function appendVideosToGithubCsv(
   videoIds: string[],
   settings: GithubSyncSettings = loadGithubSettings()

@@ -38,6 +38,7 @@ import {
   runCollectNow,
 } from "./githubCsvSync";
 import { runLocalCollectScripts } from "./localCollect";
+import { GithubActionsPanel } from "./GithubActionsPanel";
 import { GithubSyncPanel } from "./GithubSyncPanel";
 import { YoutubeApiPanel } from "./YoutubeApiPanel";
 import { LazyChart } from "./LazyChart";
@@ -334,6 +335,71 @@ export default function App() {
     }
   }, []);
 
+  const normalizeVideoDetail = (d: VideoDetail | null): VideoDetail | null => {
+    if (!d || typeof d !== "object") return null;
+    return {
+      ...d,
+      history: Array.isArray(d.history) ? d.history : [],
+      view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
+    };
+  };
+
+  const refreshDetailForVideo = async (videoId: string) => {
+    clearSiteCache();
+    try {
+      const normalized = normalizeVideoDetail(await fetchVideoDetail(videoId));
+      serverDetailRef.current[videoId] = normalized;
+
+      const videoMeta =
+        loadLocalVideos().find((item) => item.video_id === videoId) ??
+        serverVideos.find((item) => item.video_id === videoId);
+
+      if (videoMeta) {
+        setDetail(buildMergedDetail(videoId, normalized, videoMeta));
+      } else if (normalized) {
+        setDetail(normalized);
+      }
+    } catch {
+      // 保留当前详情与日期筛选
+    }
+  };
+
+  const refreshDashboardMeta = async () => {
+    clearSiteCache();
+    try {
+      const [health, dash] = await Promise.all([fetchHealth(), fetchDashboard()]);
+      setGeneratedAt(health.generated_at || "");
+      const hiddenIds = loadHiddenVideoIds();
+      let dashData: DashboardData | null =
+        dash && typeof dash === "object"
+          ? {
+              kpi: dash.kpi ?? {
+                video_count: 0,
+                monitored_with_data: 0,
+                total_views: 0,
+                total_likes: 0,
+                total_comments: 0,
+                daily_new_views: 0,
+                like_rate: 0,
+                comment_rate: 0,
+              },
+              rankings: Array.isArray(dash.rankings) ? dash.rankings : [],
+              trend: Array.isArray(dash.trend) ? dash.trend : [],
+              daily_new_by_video: Array.isArray(dash.daily_new_by_video)
+                ? dash.daily_new_by_video
+                : [],
+              videos: Array.isArray(dash.videos) ? dash.videos : [],
+            }
+          : null;
+      if (dashData && hiddenIds.size) {
+        dashData = applyDeletionToDashboard(dashData, hiddenIds);
+      }
+      setDashboard(dashData);
+    } catch {
+      // 忽略看板元数据刷新失败
+    }
+  };
+
   const syncVideosToGithub = async (
     ids: string[]
   ): Promise<"ok" | "no_token" | "failed" | "skipped"> => {
@@ -484,8 +550,13 @@ export default function App() {
         persistResult = await persistCollectedStatsToFile((msg) => showToast(msg, 6000));
         if (persistResult.ok) {
           clearLiveStatsForIds(collectedIds);
-          clearSiteCache();
-          await refresh();
+          if (isSingleManual) {
+            await refreshDetailForVideo(uniqueIds[0]);
+            await refreshDashboardMeta();
+          } else {
+            clearSiteCache();
+            await refresh();
+          }
         }
       }
 
@@ -782,14 +853,7 @@ export default function App() {
 
       fetchVideoDetail(selectedId)
         .then((d) => {
-          const normalized =
-            d && typeof d === "object"
-              ? {
-                  ...d,
-                  history: Array.isArray(d.history) ? d.history : [],
-                  view_deltas: Array.isArray(d.view_deltas) ? d.view_deltas : [],
-                }
-              : null;
+          const normalized = normalizeVideoDetail(d);
           serverDetailRef.current[selectedId] = normalized;
           if (videoMeta) {
             setDetail(buildMergedDetail(selectedId, normalized, videoMeta));
@@ -1125,6 +1189,13 @@ export default function App() {
       <div className="summary-bar">
         <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
         <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
+        <GithubActionsPanel
+          githubSyncReady={githubSyncReady}
+          onCollectCompleted={() => {
+            clearSiteCache();
+            refresh();
+          }}
+        />
       </div>
 
       <div className="app-layout">
