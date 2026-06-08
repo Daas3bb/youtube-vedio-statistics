@@ -983,6 +983,12 @@ input {
   font: inherit;
 }
 
+.detail-date-preset-btn.active {
+  color: var(--accent2);
+  border-color: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .detail-date-hint {
   font-size: 0.78rem;
   color: var(--muted);

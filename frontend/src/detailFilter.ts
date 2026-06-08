@@ -122,3 +122,70 @@ export function daysAgoLocal(n: number): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+export type DetailDatePreset = "today" | "last7" | "last30" | "all" | "custom";
+
+const DETAIL_SELECTED_KEY = "kol-detail-selected-id";
+const DETAIL_DATE_FROM_KEY = "kol-detail-date-from";
+const DETAIL_DATE_TO_KEY = "kol-detail-date-to";
+
+export function detectDetailDatePreset(from: string, to: string): DetailDatePreset {
+  if (!from && !to) return "all";
+  const today = todayLocal();
+  if (from === today && to === today) return "today";
+  if (from === daysAgoLocal(6) && to === today) return "last7";
+  if (from === daysAgoLocal(29) && to === today) return "last30";
+  return "custom";
+}
+
+export function dateRangeForPreset(preset: Exclude<DetailDatePreset, "custom" | "all">): {
+  from: string;
+  to: string;
+} {
+  const today = todayLocal();
+  if (preset === "today") return { from: today, to: today };
+  if (preset === "last7") return { from: daysAgoLocal(6), to: today };
+  return { from: daysAgoLocal(29), to: today };
+}
+
+export function loadDetailSelectedId(): string {
+  try {
+    return localStorage.getItem(DETAIL_SELECTED_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveDetailSelectedId(videoId: string): void {
+  try {
+    if (videoId) {
+      localStorage.setItem(DETAIL_SELECTED_KEY, videoId);
+    } else {
+      localStorage.removeItem(DETAIL_SELECTED_KEY);
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function loadDetailDateFilter(): { from: string; to: string } {
+  try {
+    return {
+      from: localStorage.getItem(DETAIL_DATE_FROM_KEY) || "",
+      to: localStorage.getItem(DETAIL_DATE_TO_KEY) || "",
+    };
+  } catch {
+    return { from: "", to: "" };
+  }
+}
+
+export function saveDetailDateFilter(from: string, to: string): void {
+  try {
+    if (from) localStorage.setItem(DETAIL_DATE_FROM_KEY, from);
+    else localStorage.removeItem(DETAIL_DATE_FROM_KEY);
+    if (to) localStorage.setItem(DETAIL_DATE_TO_KEY, to);
+    else localStorage.removeItem(DETAIL_DATE_TO_KEY);
+  } catch {
+    // ignore
+  }
+}

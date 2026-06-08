@@ -35,9 +35,12 @@ import {
   formatGithubSyncError,
   isGithubSyncReady,
   removeVideosFromGithub,
-  runCollectNow,
 } from "./githubCsvSync";
-import { runLocalCollectScripts } from "./localCollect";
+import {
+  persistCollectedSnapshots,
+  statsToSnapshotInput,
+  type SnapshotPersistInput,
+} from "./persistSnapshots";
 import {
   GithubActionsPanel,
   type GithubActionsPanelHandle,
@@ -63,11 +66,16 @@ import {
 import {
   availableDateRange,
   computeDeltas,
-  daysAgoLocal,
+  dateRangeForPreset,
+  detectDetailDatePreset,
   filterHistoryForDetail,
   isTodayOnlyFilter,
+  loadDetailDateFilter,
+  loadDetailSelectedId,
   rangeStats,
-  todayLocal,
+  saveDetailDateFilter,
+  saveDetailSelectedId,
+  type DetailDatePreset,
   type HistoryPoint,
 } from "./detailFilter";
 
@@ -167,12 +175,12 @@ const detailEngagementChartGrid = {
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [detail, setDetail] = useState<VideoDetail | null>(null);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(() => loadDetailSelectedId());
   const [loading, setLoading] = useState(false);
   const [generatedAt, setGeneratedAt] = useState("");
   const [toast, setToast] = useState("");
-  const [detailDateFrom, setDetailDateFrom] = useState("");
-  const [detailDateTo, setDetailDateTo] = useState("");
+  const [detailDateFrom, setDetailDateFrom] = useState(() => loadDetailDateFilter().from);
+  const [detailDateTo, setDetailDateTo] = useState(() => loadDetailDateFilter().to);
   const [input, setInput] = useState("");
   const [batchInput, setBatchInput] = useState("");
   const [showBatchForm, setShowBatchForm] = useState(false);
@@ -363,14 +371,17 @@ export default function App() {
         dashData = applyDeletionToDashboard(dashData, hiddenIds);
       }
       setDashboard(dashData);
-      if (!selectedId && list.length) {
-        const visible = mergeVideos(list, loadLocalVideos()).filter(
-          (v) => !loadHiddenVideoIds().has(v.video_id)
-        );
-        const newest = [...visible].sort(
-          (a, b) => createdAtTimestamp(b.created_at) - createdAtTimestamp(a.created_at)
-        )[0];
-        if (newest) setSelectedId(newest.video_id);
+      const visible = mergeVideos(list, loadLocalVideos()).filter(
+        (v) => !loadHiddenVideoIds().has(v.video_id)
+      );
+      const newest = [...visible].sort(
+        (a, b) => createdAtTimestamp(b.created_at) - createdAtTimestamp(a.created_at)
+      )[0];
+      const currentSelectedExists = selectedId
+        ? visible.some((video) => video.video_id === selectedId)
+        : false;
+      if (!currentSelectedExists && newest) {
+        setSelectedId(newest.video_id);
       }
     } catch (e) {
       showToast("数据未加载，请先运行 python scripts/build_static.py");
@@ -378,6 +389,18 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }, [selectedId]);
+
+  const applyDetailDatePreset = useCallback((preset: DetailDatePreset) => {
+    if (preset === "all") {
+      setDetailDateFrom("");
+      setDetailDateTo("");
+      return;
+    }
+    if (preset === "custom") return;
+    const range = dateRangeForPreset(preset);
+    setDetailDateFrom(range.from);
+    setDetailDateTo(range.to);
   }, []);
 
   const normalizeVideoDetail = (d: VideoDetail | null): VideoDetail | null => {
@@ -509,19 +532,13 @@ export default function App() {
   };
 
   const persistCollectedStatsToFile = async (
+    snapshots: SnapshotPersistInput[],
     onProgress?: (message: string) => void
   ): Promise<{ ok: true } | { ok: false; error: string }> => {
-    if (import.meta.env.DEV) {
-      const persisted = await runLocalCollectScripts();
-      if (persisted.ok) return { ok: true };
-      return { ok: false, error: persisted.error };
-    }
-    if (githubSyncReady) {
-      const result = await runCollectNow(undefined, onProgress);
-      if (result.ok) return { ok: true };
-      return { ok: false, error: formatGithubSyncError(result.reason) };
-    }
-    return { ok: false, error: "未配置数据文件写入方式" };
+    return persistCollectedSnapshots(snapshots, {
+      githubSyncReady,
+      onProgress,
+    });
   };
 
   const applyFetchedYoutubeStats = (stats: YoutubeVideoStats) => {
@@ -537,7 +554,8 @@ export default function App() {
       view_count: stats.view_count,
       like_count: stats.like_count,
       comment_count: stats.comment_count,
-      time: snap.snapshot_time.slice(0, 16),
+      time: snap.snapshot_time,
+      snapshot: statsToSnapshotInput(stats, snap.snapshot_time),
     };
   };
 
@@ -591,8 +609,11 @@ export default function App() {
         string,
         { view_count: number; like_count: number; comment_count: number; time: string }
       > = {};
+      const persistSnapshots: SnapshotPersistInput[] = [];
       for (const stats of statsList) {
-        livePatch[stats.video_id] = applyFetchedYoutubeStats(stats);
+        const applied = applyFetchedYoutubeStats(stats);
+        livePatch[stats.video_id] = applied;
+        persistSnapshots.push(applied.snapshot);
       }
       setLiveStats((prev) => ({ ...prev, ...livePatch }));
       setLocalVideos(loadLocalVideos());
@@ -610,13 +631,9 @@ export default function App() {
 
       let persistResult: { ok: true } | { ok: false; error: string } | null = null;
       if (canPersistToFile) {
-        showToast(
-          import.meta.env.DEV
-            ? "正在写入 store.json 并重建 site.json…"
-            : "正在等待 GitHub Actions 写入数据文件…",
-          8000
+        persistResult = await persistCollectedStatsToFile(persistSnapshots, (msg) =>
+          showToast(msg, 6000)
         );
-        persistResult = await persistCollectedStatsToFile((msg) => showToast(msg, 6000));
         if (persistResult.ok) {
           clearLiveStatsForIds(collectedIds);
           if (isSingleManual) {
@@ -911,6 +928,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    saveDetailSelectedId(selectedId);
+  }, [selectedId]);
+
+  useEffect(() => {
+    saveDetailDateFilter(detailDateFrom, detailDateTo);
+  }, [detailDateFrom, detailDateTo]);
+
+  useEffect(() => {
     if (!selectedId && videosSortedByNewest.length) {
       setSelectedId(videosSortedByNewest[0].video_id);
     }
@@ -919,8 +944,6 @@ export default function App() {
   useEffect(() => {
     if (!selectedId) {
       setDetail(null);
-      setDetailDateFrom("");
-      setDetailDateTo("");
       lastSelectedIdRef.current = "";
       return;
     }
@@ -932,8 +955,6 @@ export default function App() {
     const selectionChanged = lastSelectedIdRef.current !== selectedId;
     if (selectionChanged) {
       lastSelectedIdRef.current = selectedId;
-      setDetailDateFrom("");
-      setDetailDateTo("");
 
       fetchVideoDetail(selectedId)
         .then((d) => {
@@ -974,6 +995,7 @@ export default function App() {
   const detailDeltasFiltered = computeDeltas(detailHistoryFiltered);
   const detailRangeKpi = rangeStats(detailHistoryFiltered);
   const hasDateFilter = Boolean(detailDateFrom || detailDateTo);
+  const detailDatePreset = detectDetailDatePreset(detailDateFrom, detailDateTo);
   const isTodayView = isTodayOnlyFilter(detailDateFrom, detailDateTo);
   const isDailyCollapsedView = hasDateFilter && !isTodayView;
 
@@ -1360,33 +1382,29 @@ export default function App() {
               </label>
               <button
                 type="button"
-                className="btn"
-                onClick={() => {
-                  const t = todayLocal();
-                  setDetailDateFrom(t);
-                  setDetailDateTo(t);
-                }}
+                className={`btn detail-date-preset-btn${detailDatePreset === "today" ? " active" : ""}`}
+                onClick={() => applyDetailDatePreset("today")}
               >
                 今天
               </button>
               <button
                 type="button"
-                className="btn"
-                onClick={() => {
-                  setDetailDateFrom(daysAgoLocal(6));
-                  setDetailDateTo(todayLocal());
-                }}
+                className={`btn detail-date-preset-btn${detailDatePreset === "last7" ? " active" : ""}`}
+                onClick={() => applyDetailDatePreset("last7")}
               >
                 近7天
               </button>
               <button
                 type="button"
-                className="btn"
-                disabled={!hasDateFilter}
-                onClick={() => {
-                  setDetailDateFrom("");
-                  setDetailDateTo("");
-                }}
+                className={`btn detail-date-preset-btn${detailDatePreset === "last30" ? " active" : ""}`}
+                onClick={() => applyDetailDatePreset("last30")}
+              >
+                近30天
+              </button>
+              <button
+                type="button"
+                className={`btn detail-date-preset-btn${detailDatePreset === "all" ? " active" : ""}`}
+                onClick={() => applyDetailDatePreset("all")}
               >
                 全部
               </button>

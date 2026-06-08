@@ -1,6 +1,10 @@
 import { execFile } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import path from "path";
+import type { IncomingMessage } from "node:http";
 import { fileURLToPath } from "url";
 import type { Plugin } from "vite";
 import { defineConfig, loadEnv } from "vite";
@@ -11,6 +15,15 @@ const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 
+function readRequestBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(chunk as Buffer));
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf-8")));
+    req.on("error", reject);
+  });
+}
+
 function localCollectPlugin(): Plugin {
   let running = false;
 
@@ -18,7 +31,10 @@ function localCollectPlugin(): Plugin {
     name: "local-collect",
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        if (req.url !== "/api/run-collect" || req.method !== "POST") {
+        const isRunCollect = req.url === "/api/run-collect" && req.method === "POST";
+        const isPersistSnapshots =
+          req.url === "/api/persist-snapshots" && req.method === "POST";
+        if (!isRunCollect && !isPersistSnapshots) {
           next();
           return;
         }
@@ -34,6 +50,23 @@ function localCollectPlugin(): Plugin {
         res.setHeader("Content-Type", "application/json");
 
         try {
+          if (isPersistSnapshots) {
+            const body = await readRequestBody(req);
+            const tmpPath = join(tmpdir(), `persist-snapshots-${Date.now()}.json`);
+            writeFileSync(tmpPath, body, "utf-8");
+            try {
+              await execFileAsync("python", ["scripts/persist_snapshots.py", tmpPath], {
+                cwd: PROJECT_ROOT,
+                timeout: 180_000,
+                windowsHide: true,
+              });
+            } finally {
+              unlinkSync(tmpPath);
+            }
+            res.end(JSON.stringify({ ok: true }));
+            return;
+          }
+
           await execFileAsync("python", ["scripts/collector.py"], {
             cwd: PROJECT_ROOT,
             timeout: 180_000,

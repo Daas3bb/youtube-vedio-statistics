@@ -129,6 +129,42 @@ def history_dedup_keys() -> set[tuple[str, str]]:
     return keys
 
 
+def append_snapshot_exact(
+    video_id: str,
+    view_count: int,
+    like_count: int,
+    comment_count: int,
+    snapshot_time: str,
+) -> tuple[bool, str]:
+    """按精确 snapshot_time 去重，供看板「立刻采集」写入该时刻样本。"""
+    snap_str = snapshot_time.strip()
+    try:
+        dt = datetime.strptime(snap_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False, f"无效时间格式: {snapshot_time}"
+
+    bucket = bucket_time(dt)
+    created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    data = _load_store()
+    for row in data["history"]:
+        if row.get("video_id") == video_id and row.get("snapshot_time") == snap_str:
+            return False, f"已存在 {video_id} 在 {snap_str} 的快照"
+
+    data["history"].append(
+        {
+            "video_id": video_id,
+            "snapshot_time": snap_str,
+            "snapshot_bucket": bucket,
+            "view_count": str(view_count),
+            "like_count": str(like_count),
+            "comment_count": str(comment_count),
+            "created_at": created,
+        }
+    )
+    _save_store(data)
+    return True, f"已写入快照 {snap_str}"
+
+
 def append_snapshot(
     video_id: str,
     view_count: int,

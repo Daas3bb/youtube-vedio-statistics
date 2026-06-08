@@ -550,7 +550,7 @@ async function updateGithubTextFile(
   return { ok: false, reason: "write_failed:409:sha_conflict_after_retries" };
 }
 
-async function updateGithubJsonFile<T>(
+export async function updateGithubJsonFile<T>(
   path: string,
   mutate: (data: T) => T | null,
   message: string,
