@@ -19,16 +19,6 @@
       "channel_title": "Chris Hytha",
       "status": "active",
       "created_at": "2026-06-04 15:32:30"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "title": "Build an Enterprise Nextjs Rental App | AWS, EC2, Cognito, Shadcn, RDS, S3, Node, React",
-      "video_url": "https://www.youtube.com/watch?v=X1zCAPLvMtw",
-      "thumbnail_url": "https://i.ytimg.com/vi/X1zCAPLvMtw/mqdefault.jpg",
-      "publish_time": "2025-02-24",
-      "channel_title": "EdRoh",
-      "status": "active",
-      "created_at": ""
     }
   ],
   "history": [
@@ -168,15 +158,6 @@
       "created_at": "2026-06-07 06:55:29"
     },
     {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 06:55:29",
-      "snapshot_bucket": "2026-06-07 06:00:00",
-      "view_count": "269106",
-      "like_count": "8611",
-      "comment_count": "379",
-      "created_at": "2026-06-07 06:55:29"
-    },
-    {
       "video_id": "dQw4w9WgXcQ",
       "snapshot_time": "2026-06-07 08:49:30",
       "snapshot_bucket": "2026-06-07 08:00:00",
@@ -192,15 +173,6 @@
       "view_count": "107043",
       "like_count": "8719",
       "comment_count": "644",
-      "created_at": "2026-06-07 08:49:30"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 08:49:30",
-      "snapshot_bucket": "2026-06-07 08:00:00",
-      "view_count": "269117",
-      "like_count": "8611",
-      "comment_count": "379",
       "created_at": "2026-06-07 08:49:30"
     },
     {
@@ -222,15 +194,6 @@
       "created_at": "2026-06-07 11:44:29"
     },
     {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 11:44:29",
-      "snapshot_bucket": "2026-06-07 11:00:00",
-      "view_count": "269140",
-      "like_count": "8612",
-      "comment_count": "379",
-      "created_at": "2026-06-07 11:44:29"
-    },
-    {
       "video_id": "dQw4w9WgXcQ",
       "snapshot_time": "2026-06-07 13:41:34",
       "snapshot_bucket": "2026-06-07 13:00:00",
@@ -246,15 +209,6 @@
       "view_count": "107056",
       "like_count": "8720",
       "comment_count": "644",
-      "created_at": "2026-06-07 13:41:34"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 13:41:34",
-      "snapshot_bucket": "2026-06-07 13:00:00",
-      "view_count": "269140",
-      "like_count": "8612",
-      "comment_count": "379",
       "created_at": "2026-06-07 13:41:34"
     },
     {
@@ -276,15 +230,6 @@
       "created_at": "2026-06-07 15:20:58"
     },
     {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 15:20:58",
-      "snapshot_bucket": "2026-06-07 15:00:00",
-      "view_count": "269153",
-      "like_count": "8612",
-      "comment_count": "379",
-      "created_at": "2026-06-07 15:20:58"
-    },
-    {
       "video_id": "dQw4w9WgXcQ",
       "snapshot_time": "2026-06-07 17:10:27",
       "snapshot_bucket": "2026-06-07 17:00:00",
@@ -300,15 +245,6 @@
       "view_count": "107073",
       "like_count": "8721",
       "comment_count": "644",
-      "created_at": "2026-06-07 17:10:27"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 17:10:27",
-      "snapshot_bucket": "2026-06-07 17:00:00",
-      "view_count": "269162",
-      "like_count": "8612",
-      "comment_count": "379",
       "created_at": "2026-06-07 17:10:27"
     },
     {
@@ -330,15 +266,6 @@
       "created_at": "2026-06-07 19:14:16"
     },
     {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 19:14:16",
-      "snapshot_bucket": "2026-06-07 19:00:00",
-      "view_count": "269185",
-      "like_count": "8612",
-      "comment_count": "379",
-      "created_at": "2026-06-07 19:14:16"
-    },
-    {
       "video_id": "dQw4w9WgXcQ",
       "snapshot_time": "2026-06-07 21:05:57",
       "snapshot_bucket": "2026-06-07 21:00:00",
@@ -354,15 +281,6 @@
       "view_count": "107094",
       "like_count": "8723",
       "comment_count": "644",
-      "created_at": "2026-06-07 21:05:57"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 21:05:57",
-      "snapshot_bucket": "2026-06-07 21:00:00",
-      "view_count": "269185",
-      "like_count": "8612",
-      "comment_count": "379",
       "created_at": "2026-06-07 21:05:57"
     },
     {
@@ -384,15 +302,6 @@
       "created_at": "2026-06-07 22:59:48"
     },
     {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-07 22:59:48",
-      "snapshot_bucket": "2026-06-07 22:00:00",
-      "view_count": "269214",
-      "like_count": "8612",
-      "comment_count": "379",
-      "created_at": "2026-06-07 22:59:48"
-    },
-    {
       "video_id": "dQw4w9WgXcQ",
       "snapshot_time": "2026-06-08 11:39:55",
       "snapshot_bucket": "2026-06-08 11:00:00",
@@ -408,15 +317,6 @@
       "view_count": "107140",
       "like_count": "8723",
       "comment_count": "644",
-      "created_at": "2026-06-08 11:39:55"
-    },
-    {
-      "video_id": "X1zCAPLvMtw",
-      "snapshot_time": "2026-06-08 11:39:55",
-      "snapshot_bucket": "2026-06-08 11:00:00",
-      "view_count": "269223",
-      "like_count": "8612",
-      "comment_count": "379",
       "created_at": "2026-06-08 11:39:55"
     }
   ]
