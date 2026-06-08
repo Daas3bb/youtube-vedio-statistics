@@ -16,8 +16,7 @@ from youtube_client import fetch_video_stats  # noqa: E402
 
 
 def sync_inputs() -> None:
-    history_csv = ROOT / "data" / "history.csv"
-    import_from_csv(VIDEOS_CSV, history_csv)
+    import_from_csv(VIDEOS_CSV)
 
 
 async def collect_all() -> dict:

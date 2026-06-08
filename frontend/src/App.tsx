@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import {
   clearSiteCache,
@@ -11,10 +11,15 @@ import {
   type VideoDetail,
 } from "./api";
 import { Thumbnail } from "./Thumbnail";
+import { VideoSelect } from "./VideoSelect";
 import {
+  addHiddenVideoIds,
   addLocalVideos,
+  applyDeletionToDashboard,
   BATCH_INPUT_PLACEHOLDER,
+  clearHiddenVideoIds,
   createVideoFromInput,
+  loadHiddenVideoIds,
   loadLocalVideos,
   markGithubPendingIds,
   mergeVideos,
@@ -29,18 +34,32 @@ import {
   downloadVideosCsv,
   formatGithubSyncError,
   isGithubSyncReady,
+  removeVideosFromGithub,
+  triggerCollectWorkflow,
 } from "./githubCsvSync";
+import { runLocalCollectScripts } from "./localCollect";
 import { GithubSyncPanel } from "./GithubSyncPanel";
 import { YoutubeApiPanel } from "./YoutubeApiPanel";
 import { LazyChart } from "./LazyChart";
-import { appendLocalSnapshot, buildMergedDetail } from "./localSnapshots";
+import {
+  appendLocalSnapshot,
+  buildMergedDetail,
+  removeLocalSnapshotsByVideoIds,
+} from "./localSnapshots";
 import { fetchYoutubeVideoStats } from "./youtubeCollect";
 import { isYoutubeApiReady, loadYoutubeApiKey } from "./youtubeSettings";
+import { DraggablePanel } from "./DraggablePanel";
+import {
+  loadPanelOrder,
+  reorderPanels,
+  savePanelOrder,
+  type PanelId,
+} from "./dashboardLayout";
 import {
   availableDateRange,
   computeDeltas,
   daysAgoLocal,
-  filterHistory,
+  filterHistoryForDetail,
   rangeStats,
   todayLocal,
   type HistoryPoint,
@@ -51,6 +70,17 @@ function formatNum(n: number) {
   if (n >= 1_000) return (n / 1_000).toFixed(3) + "K";
   return n.toFixed(3);
 }
+
+function engagementRates(views: number, likes: number, comments: number) {
+  if (!views) return { likeRate: 0, commentRate: 0 };
+  return {
+    likeRate: Math.round((likes / views) * 10000) / 100,
+    commentRate: Math.round((comments / views) * 10000) / 100,
+  };
+}
+
+type RankSortKey = "view_count" | "like_count" | "comment_count";
+type RankSortOrder = "asc" | "desc";
 
 function trendAxisBounds(values: number[]) {
   if (!values.length) return {};
@@ -64,12 +94,27 @@ function trendAxisBounds(values: number[]) {
   };
 }
 
+const detailChartGrid = {
+  left: 24,
+  right: 24,
+  top: 52,
+  bottom: 56,
+  containLabel: true,
+};
+
+const detailEngagementChartGrid = {
+  left: 24,
+  right: 24,
+  top: 52,
+  bottom: 56,
+  containLabel: true,
+};
+
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [detail, setDetail] = useState<VideoDetail | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(false);
-  const [dataOk, setDataOk] = useState<boolean | null>(null);
   const [generatedAt, setGeneratedAt] = useState("");
   const [toast, setToast] = useState("");
   const [detailDateFrom, setDetailDateFrom] = useState("");
@@ -81,6 +126,8 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(() => loadHiddenVideoIds());
   const [localVideos, setLocalVideos] = useState<Video[]>(() => loadLocalVideos());
   const [serverVideos, setServerVideos] = useState<Video[]>([]);
   const [serverVideoIds, setServerVideoIds] = useState<Set<string>>(new Set());
@@ -90,8 +137,13 @@ export default function App() {
   const [liveStats, setLiveStats] = useState<
     Record<string, { view_count: number; like_count: number; comment_count: number; time: string }>
   >({});
+  const [rankSortBy, setRankSortBy] = useState<RankSortKey>("view_count");
+  const [rankSortOrder, setRankSortOrder] = useState<RankSortOrder>("desc");
+  const [panelOrder, setPanelOrder] = useState<PanelId[]>(() => loadPanelOrder());
 
-  const videos = mergeVideos(serverVideos, localVideos);
+  const videos = mergeVideos(serverVideos, localVideos).filter(
+    (video) => !hiddenVideoIds.has(video.video_id)
+  );
 
   const showToast = (msg: string, durationMs = 3500) => {
     setToast(msg);
@@ -107,7 +159,6 @@ export default function App() {
         fetchVideos(),
         fetchDashboard(),
       ]);
-      setDataOk(health.data_loaded);
       setGeneratedAt(health.generated_at || "");
       const list = Array.isArray(vList) ? vList : [];
       const serverIdSet = new Set(list.map((v) => v.video_id));
@@ -120,10 +171,19 @@ export default function App() {
       const pendingCleared = [...loadGithubPendingIds()].filter((id) => serverIdSet.has(id));
       if (pendingCleared.length) clearGithubPendingIds(pendingCleared);
       setGithubPendingIds(loadGithubPendingIds());
+
+      const hidden = loadHiddenVideoIds();
+      const goneFromServer = [...hidden].filter((id) => !serverIdSet.has(id));
+      if (goneFromServer.length) {
+        clearHiddenVideoIds(goneFromServer);
+      }
+      setHiddenVideoIds(loadHiddenVideoIds());
       setServerVideos(list);
       setServerVideoIds(serverIdSet);
       setLocalVideos(loadLocalVideos());
-      setDashboard(
+
+      const hiddenIds = loadHiddenVideoIds();
+      let dashData: DashboardData | null =
         dash && typeof dash === "object"
           ? {
               kpi: dash.kpi ?? {
@@ -143,11 +203,13 @@ export default function App() {
                 : [],
               videos: Array.isArray(dash.videos) ? dash.videos : [],
             }
-          : null
-      );
+          : null;
+      if (dashData && hiddenIds.size) {
+        dashData = applyDeletionToDashboard(dashData, hiddenIds);
+      }
+      setDashboard(dashData);
       if (!selectedId && list.length) setSelectedId(list[0].video_id);
     } catch (e) {
-      setDataOk(false);
       showToast("数据未加载，请先运行 python scripts/build_static.py");
       console.error(e);
     } finally {
@@ -198,6 +260,85 @@ export default function App() {
       return;
     }
     await syncVideosToGithub(ids);
+  };
+
+  const handleDeleteVideo = async (video: Video) => {
+    const videoId = video.video_id;
+    if (deletingIds.has(videoId)) return;
+
+    const title = video.title || videoId;
+    const onServer = serverVideoIds.has(videoId);
+    const confirmMessage = onServer
+      ? githubSyncReady
+        ? `确定删除「${title}」？\n将从 videos.csv、store.json、site.json 移除该视频及历史数据。`
+        : `确定从本机移除「${title}」？\n未配置 GitHub 同步，云端数据需手动编辑仓库文件。`
+      : `确定删除「${title}」？\n该视频仅存在于本机，将清理本地列表与快照。`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setDeletingIds((prev) => new Set(prev).add(videoId));
+    try {
+      removeLocalVideosByIds([videoId]);
+      removeLocalSnapshotsByVideoIds([videoId]);
+      setLocalVideos(loadLocalVideos());
+      setGithubPendingIds(loadGithubPendingIds());
+      setLiveStats((prev) => {
+        const next = { ...prev };
+        delete next[videoId];
+        return next;
+      });
+
+      addHiddenVideoIds([videoId]);
+      setHiddenVideoIds(loadHiddenVideoIds());
+      setDashboard((prev) =>
+        prev ? applyDeletionToDashboard(prev, new Set([videoId])) : prev
+      );
+
+      if (onServer) {
+        setServerVideos((prev) => prev.filter((item) => item.video_id !== videoId));
+        setServerVideoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(videoId);
+          return next;
+        });
+        if (selectedId === videoId) {
+          const remaining = videos.filter((item) => item.video_id !== videoId);
+          setSelectedId(remaining[0]?.video_id ?? "");
+          setDetail(null);
+        }
+
+        if (githubSyncReady) {
+          const result = await removeVideosFromGithub([videoId]);
+          if (!result.ok) {
+            showToast(`云端删除失败：${formatGithubSyncError(result.reason)}`, 7000);
+            return;
+          }
+          showToast(
+            `已删除「${title}」：CSV ${result.csvRemoved > 0 ? "已更新" : "无变更"}，数据已清理`,
+            6000
+          );
+          clearSiteCache();
+          await refresh();
+          return;
+        }
+
+        showToast(`已从本机移除「${title}」。配置 GitHub 同步后可同步删除云端数据`, 6000);
+        return;
+      }
+
+      if (selectedId === videoId) {
+        const remaining = videos.filter((item) => item.video_id !== videoId);
+        setSelectedId(remaining[0]?.video_id ?? "");
+        setDetail(null);
+      }
+      showToast(`已删除「${title}」`, 4000);
+    } finally {
+      setDeletingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(videoId);
+        return next;
+      });
+    }
   };
 
   const handleSyncToGithub = async (videoId: string) => {
@@ -332,10 +473,40 @@ export default function App() {
 
       const serverDetail = await fetchVideoDetail(selectedId).catch(() => null);
       setDetail(buildMergedDetail(selectedId, serverDetail, videoMeta, stats));
-      showToast(
-        `已更新：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞（本机快照，Actions 每 2 小时同步云端）`,
-        6000
-      );
+
+      if (import.meta.env.DEV) {
+        showToast("正在写入 store.json 并重建 site.json…", 8000);
+        const persisted = await runLocalCollectScripts();
+        if (persisted.ok) {
+          showToast(
+            `已写入 store.json：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞`,
+            6000
+          );
+        } else {
+          showToast(
+            `本机快照已保存，但写入 store.json 失败：${persisted.error}`,
+            8000
+          );
+        }
+      } else if (githubSyncReady) {
+        const triggered = await triggerCollectWorkflow();
+        if (triggered.ok) {
+          showToast(
+            `已更新本机显示，并触发 GitHub Actions 采集（约数分钟后云端同步）`,
+            7000
+          );
+        } else {
+          showToast(
+            `本机已更新：${formatNum(stats.view_count)} 播放（触发云端采集失败：${formatGithubSyncError(triggered.reason)}）`,
+            7000
+          );
+        }
+      } else {
+        showToast(
+          `已更新：${formatNum(stats.view_count)} 播放 · ${formatNum(stats.like_count)} 赞（仅本机，未写入 store.json）`,
+          6000
+        );
+      }
     } catch (error) {
       showToast(error instanceof Error ? error.message : "采集失败", 8000);
     } finally {
@@ -399,7 +570,7 @@ export default function App() {
 
   const detailHistoryAll: HistoryPoint[] = detail?.history ?? [];
   const detailDateBounds = availableDateRange(detailHistoryAll);
-  const detailHistoryFiltered = filterHistory(
+  const detailHistoryFiltered = filterHistoryForDetail(
     detailHistoryAll,
     detailDateFrom,
     detailDateTo
@@ -408,68 +579,18 @@ export default function App() {
   const detailRangeKpi = rangeStats(detailHistoryFiltered);
   const hasDateFilter = Boolean(detailDateFrom || detailDateTo);
 
-  const trendOption = dashboard
-    ? (() => {
-        const trendValues = dashboard.trend.map((t) => t.total_views);
-        const trendAxis = trendAxisBounds(trendValues);
-        return {
-          backgroundColor: "transparent",
-          tooltip: { trigger: "axis" },
-          grid: { left: 80, right: 24, top: 24, bottom: 48 },
-          xAxis: {
-            type: "category",
-            data: dashboard.trend.map((t) => t.time),
-            axisLabel: { color: "#8b9cb3", rotate: 35 },
-          },
-          yAxis: {
-            type: "value",
-            ...trendAxis,
-            scale: true,
-            axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
-            splitLine: { lineStyle: { color: "#2d3a4f" } },
-          },
-          series: [
-            {
-              name: "累计播放量",
-              type: "line",
-              smooth: true,
-              data: trendValues,
-              areaStyle: { color: "rgba(255,68,68,0.15)" },
-              lineStyle: { color: "#ff4444", width: 2 },
-              itemStyle: { color: "#ff4444" },
-            },
-          ],
-        };
-      })()
-    : {};
+  const visibleDashboard = useMemo(() => {
+    if (!dashboard) return null;
+    if (!hiddenVideoIds.size) return dashboard;
+    return applyDeletionToDashboard(dashboard, hiddenVideoIds);
+  }, [dashboard, hiddenVideoIds]);
 
-  const dailyNewOption = dashboard
-    ? {
-        backgroundColor: "transparent",
-        tooltip: { trigger: "axis" },
-        grid: { left: 80, right: 24, top: 24, bottom: 72 },
-        xAxis: {
-          type: "category",
-          data: dashboard.daily_new_by_video.map((d) =>
-            d.title.length > 18 ? d.title.slice(0, 18) + "…" : d.title
-          ),
-          axisLabel: { color: "#8b9cb3", rotate: 30 },
-        },
-        yAxis: {
-          type: "value",
-          axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
-          splitLine: { lineStyle: { color: "#2d3a4f" } },
-        },
-        series: [
-          {
-            name: "今日新增播放",
-            type: "bar",
-            data: dashboard.daily_new_by_video.map((d) => d.delta_views),
-            itemStyle: { color: "#3b82f6", borderRadius: [4, 4, 0, 0] },
-          },
-        ],
-      }
-    : {};
+  const sortedRankings = useMemo(() => {
+    const list = visibleDashboard?.rankings ?? [];
+    return [...list].sort((a, b) =>
+      rankSortOrder === "desc" ? b[rankSortBy] - a[rankSortBy] : a[rankSortBy] - b[rankSortBy]
+    );
+  }, [visibleDashboard, rankSortBy, rankSortOrder]);
 
   const detailViewsOption = detailHistoryFiltered.length
     ? (() => {
@@ -490,27 +611,37 @@ export default function App() {
             },
           },
           legend: { data: ["播放量", "新增播放"], textStyle: { color: "#8b9cb3" } },
-          grid: { left: 60, right: 64, top: 40, bottom: 48 },
+          grid: detailChartGrid,
           xAxis: {
             type: "category",
             data: detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || ""),
-            axisLabel: { color: "#8b9cb3" },
+            axisLabel: { color: "#8b9cb3", margin: 10 },
           },
           yAxis: [
             {
               type: "value",
               name: "播放量",
               position: "left",
+              nameGap: 12,
               ...viewAxis,
               scale: true,
-              axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
+              axisLabel: {
+                color: "#8b9cb3",
+                formatter: (v: number) => formatNum(v),
+                margin: 12,
+              },
               splitLine: { lineStyle: { color: "#2d3a4f" } },
             },
             {
               type: "value",
               name: "新增播放",
               position: "right",
-              axisLabel: { color: "#8b9cb3", formatter: (v: number) => formatNum(v) },
+              nameGap: 12,
+              axisLabel: {
+                color: "#8b9cb3",
+                formatter: (v: number) => formatNum(v),
+                margin: 12,
+              },
               splitLine: { show: false },
             },
           ],
@@ -537,272 +668,214 @@ export default function App() {
       })()
     : {};
 
-  const kpi = dashboard?.kpi;
+  const detailEngagementOption = detailHistoryFiltered.length
+    ? (() => {
+        const likeValues = detailHistoryFiltered.map((h) => h.likes);
+        const commentValues = detailHistoryFiltered.map((h) => h.comments);
+        const deltaLikeValues = [0, ...detailDeltasFiltered.map((d) => d.delta_likes)];
+        const deltaCommentValues = [0, ...detailDeltasFiltered.map((d) => d.delta_comments)];
+        const likeAxis = trendAxisBounds(likeValues);
+        const commentAxis = trendAxisBounds(commentValues);
+        const deltaAxis = trendAxisBounds([...deltaLikeValues, ...deltaCommentValues]);
+        const timeLabels = detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || "");
+
+        return {
+          backgroundColor: "transparent",
+          tooltip: {
+            trigger: "axis",
+            formatter: (params: CallbackDataParams | CallbackDataParams[]) => {
+              const items = Array.isArray(params) ? params : [params];
+              const time = String(items[0]?.name ?? "");
+              let html = `时间：${time}<br/>`;
+              for (const p of items) {
+                html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
+              }
+              return html;
+            },
+          },
+          legend: {
+            data: ["点赞", "新增点赞", "评论", "新增评论"],
+            textStyle: { color: "#8b9cb3" },
+          },
+          grid: detailEngagementChartGrid,
+          xAxis: {
+            type: "category",
+            data: timeLabels,
+            axisLabel: { color: "#8b9cb3", margin: 10 },
+          },
+          yAxis: [
+            {
+              type: "value",
+              name: "点赞",
+              position: "left",
+              nameGap: 12,
+              ...likeAxis,
+              scale: true,
+              axisLabel: {
+                color: "#8b9cb3",
+                formatter: (v: number) => formatNum(v),
+                margin: 10,
+                align: "right",
+              },
+              splitLine: { lineStyle: { color: "#2d3a4f" } },
+            },
+            {
+              type: "value",
+              name: "增量",
+              position: "right",
+              nameGap: 12,
+              ...deltaAxis,
+              scale: true,
+              axisLabel: {
+                color: "#8b9cb3",
+                formatter: (v: number) => formatNum(v),
+                margin: 10,
+                align: "left",
+              },
+              splitLine: { show: false },
+            },
+            {
+              type: "value",
+              name: "评论",
+              position: "right",
+              offset: 64,
+              nameGap: 12,
+              ...commentAxis,
+              scale: true,
+              axisLabel: {
+                color: "#f59e0b",
+                formatter: (v: number) => formatNum(v),
+                margin: 10,
+                align: "left",
+              },
+              axisLine: { show: true, lineStyle: { color: "#f59e0b", opacity: 0.35 } },
+              splitLine: { show: false },
+            },
+          ],
+          series: [
+            {
+              name: "点赞",
+              type: "line",
+              smooth: true,
+              yAxisIndex: 0,
+              z: 1,
+              data: likeValues,
+              lineStyle: { color: "#3b82f6", width: 2 },
+              itemStyle: { color: "#3b82f6" },
+              areaStyle: { color: "rgba(59, 130, 246, 0.1)" },
+            },
+            {
+              name: "新增点赞",
+              type: "bar",
+              yAxisIndex: 1,
+              z: 2,
+              barMaxWidth: 20,
+              data: deltaLikeValues,
+              itemStyle: { color: "#60a5fa", opacity: 0.85, borderRadius: [3, 3, 0, 0] },
+            },
+            {
+              name: "评论",
+              type: "line",
+              smooth: true,
+              yAxisIndex: 2,
+              z: 1,
+              data: commentValues,
+              lineStyle: { color: "#f59e0b", width: 2 },
+              itemStyle: { color: "#f59e0b" },
+              areaStyle: { color: "rgba(245, 158, 11, 0.1)" },
+            },
+            {
+              name: "新增评论",
+              type: "bar",
+              yAxisIndex: 1,
+              z: 2,
+              barMaxWidth: 20,
+              data: deltaCommentValues,
+              itemStyle: { color: "#fbbf24", opacity: 0.85, borderRadius: [3, 3, 0, 0] },
+            },
+          ],
+        };
+      })()
+    : {};
+
+  const kpi = visibleDashboard?.kpi;
+
+  const handlePanelReorder = (fromId: PanelId, toId: PanelId) => {
+    setPanelOrder((prev) => {
+      const next = reorderPanels(prev, fromId, toId);
+      savePanelOrder(next);
+      return next;
+    });
+  };
 
   return (
     <div className="app">
+      <div className="app-container">
       <header className="header">
-        <h1>
-          KOL <span>YouTube</span> 数据监控
-        </h1>
-        <div className="header-actions">
-          <span className={`badge ${dataOk ? "ok" : "warn"}`}>
-            {dataOk === null ? "…" : dataOk ? "静态数据已加载" : "数据未加载"}
-          </span>
-          {generatedAt && (
-            <span className="badge ok">更新于 {generatedAt.slice(0, 16)}</span>
-          )}
-          <button
-            className="btn"
-            onClick={refresh}
-            disabled={loading}
-            title="仅重新加载已发布的静态数据，不会触发 YouTube 采集"
-          >
-            刷新看板
-          </button>
+        <div className="header-top">
+          <div className="header-title-block">
+            <h1>
+              KOL <span>YouTube</span> 数据监控
+            </h1>
+            <p className="header-subtitle">每 2 小时同步一次云端数据</p>
+          </div>
+          <div className="header-actions">
+            {generatedAt && (
+              <span className="badge ok">更新于 {generatedAt.slice(0, 16)}</span>
+            )}
+            <button
+              className="btn"
+              onClick={refresh}
+              disabled={loading}
+              title="仅重新加载已发布的静态数据，不会触发 YouTube 采集"
+            >
+              刷新看板
+            </button>
+          </div>
         </div>
       </header>
 
-      <div className="static-notice">
-        「立刻采集」直接请求 YouTube API（需配置 API Key）；GitHub Actions 仅每 2 小时同步云端数据。
-        {githubSyncReady
-          ? " 已启用 GitHub 同步：添加视频会写入 inputs/videos.csv。"
-          : " 添加视频请先配置 GitHub Token 以写入 videos.csv。"}
+      <div className="summary-bar">
+        <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
+        <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
       </div>
 
-      {kpi && (
-        <div className="kpi-grid">
-          <div className="kpi-card">
-            <div className="label">监控视频数</div>
-            <div className="value">{kpi.video_count}</div>
-          </div>
-          <div className="kpi-card">
-            <div className="label">总播放量</div>
-            <div className="value">{formatNum(kpi.total_views)}</div>
-          </div>
-          <div className="kpi-card">
-            <div className="label">今日新增播放</div>
-            <div className="value">{formatNum(kpi.daily_new_views)}</div>
-          </div>
-          <div className="kpi-card">
-            <div className="label">总点赞</div>
-            <div className="value">{formatNum(kpi.total_likes)}</div>
-          </div>
-          <div className="kpi-card">
-            <div className="label">总评论</div>
-            <div className="value">{formatNum(kpi.total_comments)}</div>
-          </div>
-          <div className="kpi-card">
-            <div className="label">点赞率</div>
-            <div className="value">{kpi.like_rate}%</div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid-2">
-        <section className="section">
-          <h2>播放趋势（全站汇总）</h2>
-          <div className="chart-box">
-            {dashboard?.trend.length ? (
-              <LazyChart option={trendOption} style={{ height: "100%" }} />
-            ) : (
-              <p className="empty">暂无历史数据</p>
-            )}
-          </div>
-        </section>
-        <section className="section">
-          <h2>今日新增播放量（按视频）</h2>
-          <div className="chart-box">
-            {dashboard?.daily_new_by_video.length ? (
-              <LazyChart option={dailyNewOption} style={{ height: "100%" }} />
-            ) : (
-              <p className="empty">需要至少两天的快照才能计算日增量</p>
-            )}
-          </div>
-        </section>
-      </div>
-
-      <section className="section">
-        <h2>视频列表管理</h2>
-        <div className="config-panels-row">
-          <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
-          <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
-        </div>
-        <div className="add-form">
-          <input
-            placeholder="粘贴 YouTube 链接或 11 位 Video ID"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          />
-          <button className="btn btn-primary" onClick={handleAdd} disabled={adding}>
-            {adding ? "添加中…" : "添加视频"}
-          </button>
-          {!showBatchForm && (
-            <button className="btn" onClick={() => setShowBatchForm(true)}>
-              批量添加
-            </button>
-          )}
-        </div>
-        {showBatchForm && (
-          <div className="batch-add-form">
-            <textarea
-              placeholder={BATCH_INPUT_PLACEHOLDER}
-              value={batchInput}
-              onChange={(e) => setBatchInput(e.target.value)}
-              rows={5}
-              autoFocus
-            />
-            <div className="batch-add-actions">
-              <button
-                className="btn btn-primary"
-                onClick={handleBatchAdd}
-                disabled={batchAdding || !batchInput.trim()}
-              >
-                {batchAdding ? "添加中…" : "确认添加"}
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  setShowBatchForm(false);
-                  setBatchInput("");
-                }}
-                disabled={batchAdding}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        )}
-        <table className="video-table">
-          <thead>
-            <tr>
-              <th>缩略图</th>
-              <th>标题</th>
-              <th>频道</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {videos.map((v) => {
-              const rank = dashboard?.rankings.find((r) => r.video_id === v.video_id);
-              const live = liveStats[v.video_id];
-              const syncLabel = videoSyncLabel(v.video_id, serverVideoIds, githubPendingIds);
-              const isLocal = Boolean(syncLabel);
-              const needsGithubSync = !serverVideoIds.has(v.video_id);
-              const isSyncing = syncingIds.has(v.video_id);
-              return (
-                <tr key={v.video_id}>
-                  <td>
-                    <Thumbnail videoId={v.video_id} url={v.thumbnail_url} />
-                  </td>
-                  <td>
-                    <a
-                      className="link"
-                      href={v.video_url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {v.title || v.video_id}
-                    </a>
-                    {syncLabel && <span className="local-badge">{syncLabel}</span>}
-                    {(live || rank) && (
-                      <div className="rank-meta">
-                        {formatNum(live?.view_count ?? rank?.view_count ?? 0)} 播放 ·{" "}
-                        {formatNum(live?.like_count ?? rank?.like_count ?? 0)} 赞
-                        {live && <span className="live-tag"> · 即时</span>}
-                      </div>
-                    )}
-                  </td>
-                  <td>{v.channel_title || "—"}</td>
-                  <td>{isLocal ? "pending" : v.status}</td>
-                  <td className="video-actions">
-                    <button
-                      className="btn"
-                      style={{ padding: "4px 10px", fontSize: "0.8rem" }}
-                      onClick={() => setSelectedId(v.video_id)}
-                    >
-                      详情
-                    </button>
-                    {needsGithubSync && (
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: "4px 10px", fontSize: "0.8rem" }}
-                        onClick={() => handleSyncToGithub(v.video_id)}
-                        disabled={isSyncing}
-                        title="写入 GitHub inputs/videos.csv"
-                      >
-                        {isSyncing ? "同步中…" : githubPendingIds.has(v.video_id) ? "重试同步" : "同步 GitHub"}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {!videos.length && (
-          <p className="empty">暂无视频，请添加 YouTube 链接开始监控</p>
-        )}
-      </section>
-
-      <div className="grid-2">
-        <section className="section">
-          <h2>播放量排行榜</h2>
-          <ul className="rank-list">
-            {(dashboard?.rankings || []).map((r, i) => (
-              <li key={r.video_id} className="rank-item">
-                <span className={`rank-num ${i < 3 ? "top" : ""}`}>{i + 1}</span>
-                <Thumbnail videoId={r.video_id} url={r.thumbnail_url} />
-                <div className="rank-info">
-                  <div className="rank-title">{r.title}</div>
-                  <div className="rank-meta">
-                    {formatNum(r.view_count)} 播放 · {formatNum(r.like_count)} 赞 ·{" "}
-                    {formatNum(r.comment_count)} 评论
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-          {!dashboard?.rankings.length && (
-            <p className="empty">采集数据后将显示排行</p>
-          )}
-        </section>
-
-        <section className="section">
+      {panelOrder.map((panelId) => (
+        <DraggablePanel key={panelId} id={panelId} onReorder={handlePanelReorder}>
+          {panelId === "detail" && (
+          <>
           <h2>单视频详情</h2>
           <div className="detail-select">
-            <select
+            <VideoSelect
+              videos={videos}
               value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-            >
-              <option value="">选择视频</option>
-              {videos.map((v) => (
-                <option key={v.video_id} value={v.video_id}>
-                  {v.title || v.video_id}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleCollectNow}
-              disabled={!selectedId || collecting}
-              title={
-                youtubeApiReady
-                  ? "直接请求 YouTube API 获取最新播放数据（本机快照）"
-                  : "需先配置 YouTube API Key"
-              }
-            >
-              {collecting ? "采集中…" : "立刻采集"}
-            </button>
+              onChange={setSelectedId}
+              searchable
+            />
+            <div className="detail-collect-wrap">
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleCollectNow}
+                disabled={!selectedId || collecting}
+                title={
+                  youtubeApiReady
+                    ? "直接请求 YouTube API 获取最新播放数据（本机快照）"
+                    : "需先配置 YouTube API Key"
+                }
+              >
+                {collecting ? "采集中…" : "立刻采集"}
+              </button>
+              <p className="detail-collect-hint">
+                【立刻采集】：立刻获取该视频当前时刻的数据。
+              </p>
+              {!youtubeApiReady && selectedId && (
+                <p className="detail-collect-hint warn">
+                  需先配置 YouTube API Key；GitHub Pages 线上版受 CORS 限制，请用本地 npm run dev。
+                </p>
+              )}
+            </div>
           </div>
-          {!youtubeApiReady && selectedId && (
-            <p className="detail-collect-hint">
-              「立刻采集」需先配置 YouTube API Key；GitHub Pages 线上版受 CORS 限制，请用本地 npm run dev。
-            </p>
-          )}
 
           {detailHistoryAll.length > 0 && (
             <div className="detail-date-filter">
@@ -894,16 +967,244 @@ export default function App() {
               </div>
             </div>
           )}
-          <div className="chart-box">
-            {detailHistoryFiltered.length ? (
-              <LazyChart option={detailViewsOption} style={{ height: "100%" }} />
-            ) : detailHistoryAll.length ? (
-              <p className="empty">所选日期范围内暂无快照数据</p>
-            ) : (
-              <p className="empty">选择视频后查看趋势</p>
-            )}
+          <div className="detail-charts">
+            <div className="detail-chart-block">
+              <h3>播放量趋势</h3>
+              <div className="chart-box">
+                {detailHistoryFiltered.length ? (
+                  <LazyChart option={detailViewsOption} style={{ height: "100%" }} />
+                ) : detailHistoryAll.length ? (
+                  <p className="empty">所选日期范围内暂无快照数据</p>
+                ) : (
+                  <p className="empty">选择视频后查看趋势</p>
+                )}
+              </div>
+            </div>
+            <div className="detail-chart-block">
+              <h3>点赞 / 评论趋势</h3>
+              <div className="chart-box">
+                {detailHistoryFiltered.length ? (
+                  <LazyChart option={detailEngagementOption} style={{ height: "100%" }} />
+                ) : detailHistoryAll.length ? (
+                  <p className="empty">所选日期范围内暂无快照数据</p>
+                ) : (
+                  <p className="empty">选择视频后查看趋势</p>
+                )}
+              </div>
+            </div>
           </div>
-        </section>
+          </>
+          )}
+
+          {panelId === "videos" && (
+          <>
+        <div className="section-head">
+          <h2>视频列表管理</h2>
+          <div className="summary-kpi">
+            <span className="summary-kpi-label">监控视频数</span>
+            <span className="summary-kpi-value">{kpi?.video_count ?? videos.length}</span>
+          </div>
+        </div>
+        <div className="add-form">
+          <input
+            placeholder="粘贴 YouTube 链接或 11 位 Video ID"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          />
+          <button className="btn btn-primary" onClick={handleAdd} disabled={adding}>
+            {adding ? "添加中…" : "添加视频"}
+          </button>
+          {!showBatchForm && (
+            <button className="btn" onClick={() => setShowBatchForm(true)}>
+              批量添加
+            </button>
+          )}
+        </div>
+        {showBatchForm && (
+          <div className="batch-add-form">
+            <textarea
+              placeholder={BATCH_INPUT_PLACEHOLDER}
+              value={batchInput}
+              onChange={(e) => setBatchInput(e.target.value)}
+              rows={5}
+              autoFocus
+            />
+            <div className="batch-add-actions">
+              <button
+                className="btn btn-primary"
+                onClick={handleBatchAdd}
+                disabled={batchAdding || !batchInput.trim()}
+              >
+                {batchAdding ? "添加中…" : "确认添加"}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setShowBatchForm(false);
+                  setBatchInput("");
+                }}
+                disabled={batchAdding}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="table-scroll">
+        <table className="video-table">
+          <thead>
+            <tr>
+              <th>缩略图</th>
+              <th>标题</th>
+              <th className="col-middle">频道</th>
+              <th className="col-middle">状态</th>
+              <th className="col-middle">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {videos.map((v) => {
+              const rank = visibleDashboard?.rankings.find((r) => r.video_id === v.video_id);
+              const live = liveStats[v.video_id];
+              const syncLabel = videoSyncLabel(v.video_id, serverVideoIds, githubPendingIds);
+              const isLocal = Boolean(syncLabel);
+              const needsGithubSync = !serverVideoIds.has(v.video_id);
+              const isSyncing = syncingIds.has(v.video_id);
+              return (
+                <tr key={v.video_id}>
+                  <td>
+                    <Thumbnail videoId={v.video_id} url={v.thumbnail_url} />
+                  </td>
+                  <td>
+                    <a
+                      className="link"
+                      href={v.video_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {v.title || v.video_id}
+                    </a>
+                    {syncLabel && <span className="local-badge">{syncLabel}</span>}
+                    {(live || rank) && (
+                      <div className="rank-meta">
+                        {formatNum(live?.view_count ?? rank?.view_count ?? 0)} 播放 ·{" "}
+                        {formatNum(live?.like_count ?? rank?.like_count ?? 0)} 赞
+                        {live && <span className="live-tag"> · 即时</span>}
+                      </div>
+                    )}
+                  </td>
+                  <td className="col-middle">{v.channel_title || "—"}</td>
+                  <td className="col-middle">{isLocal ? "pending" : v.status}</td>
+                  <td className="col-middle video-actions-cell">
+                    <div className="video-actions">
+                      <button
+                        className="btn"
+                        style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+                        onClick={() => setSelectedId(v.video_id)}
+                      >
+                        详情
+                      </button>
+                      {needsGithubSync && (
+                        <button
+                          className="btn btn-primary"
+                          style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+                          onClick={() => handleSyncToGithub(v.video_id)}
+                          disabled={isSyncing}
+                          title="写入 GitHub inputs/videos.csv"
+                        >
+                          {isSyncing ? "同步中…" : githubPendingIds.has(v.video_id) ? "重试同步" : "同步 GitHub"}
+                        </button>
+                      )}
+                      <button
+                        className="btn btn-danger"
+                        style={{ padding: "4px 10px", fontSize: "0.8rem" }}
+                        onClick={() => handleDeleteVideo(v)}
+                        disabled={deletingIds.has(v.video_id)}
+                        title="删除视频并清理相关数据"
+                      >
+                        {deletingIds.has(v.video_id) ? "删除中…" : "删除"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+        {!videos.length && (
+          <p className="empty">暂无视频，请添加 YouTube 链接开始监控</p>
+        )}
+          </>
+          )}
+
+          {panelId === "rankings" && (
+          <>
+        <div className="section-head">
+          <h2>播放量排行榜</h2>
+          <div className="rank-sort-bar">
+            <span className="rank-sort-label">排序</span>
+            <button
+              type="button"
+              className={`btn rank-sort-btn${rankSortBy === "view_count" ? " active" : ""}`}
+              onClick={() => setRankSortBy("view_count")}
+            >
+              播放量
+            </button>
+            <button
+              type="button"
+              className={`btn rank-sort-btn${rankSortBy === "like_count" ? " active" : ""}`}
+              onClick={() => setRankSortBy("like_count")}
+            >
+              点赞量
+            </button>
+            <button
+              type="button"
+              className={`btn rank-sort-btn${rankSortBy === "comment_count" ? " active" : ""}`}
+              onClick={() => setRankSortBy("comment_count")}
+            >
+              评论数
+            </button>
+            <button
+              type="button"
+              className={`rank-order-badge ${rankSortOrder === "desc" ? "desc" : "asc"}`}
+              onClick={() => setRankSortOrder((order) => (order === "desc" ? "asc" : "desc"))}
+              title="点击切换升序 / 降序"
+            >
+              {rankSortOrder === "desc" ? "降序 ↓" : "升序 ↑"}
+            </button>
+          </div>
+        </div>
+        <ul className="rank-list">
+          {sortedRankings.map((r, i) => {
+            const rates = engagementRates(r.view_count, r.like_count, r.comment_count);
+            return (
+              <li key={r.video_id} className="rank-item">
+                <span className={`rank-num ${i < 3 ? "top" : ""}`}>{i + 1}</span>
+                <Thumbnail videoId={r.video_id} url={r.thumbnail_url} />
+                <div className="rank-info">
+                  <div className="rank-title">{r.title}</div>
+                  <div className="rank-meta">
+                    {formatNum(r.view_count)} 播放 · {formatNum(r.like_count)} 赞 ·{" "}
+                    {formatNum(r.comment_count)} 评论
+                  </div>
+                </div>
+                <div className="rank-rates">
+                  <span className="rank-rate-badge like">点赞率 {rates.likeRate}%</span>
+                  <span className="rank-rate-badge comment">评论率 {rates.commentRate}%</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        {!sortedRankings.length && (
+          <p className="empty">采集数据后将显示排行</p>
+        )}
+          </>
+          )}
+        </DraggablePanel>
+      ))}
+
       </div>
 
       {toast && <div className="toast">{toast}</div>}

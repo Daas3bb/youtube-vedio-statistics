@@ -1,7 +1,8 @@
-import type { Video } from "./api";
+import type { DashboardData, Video } from "./api";
 
 const LS_KEY = "kol-local-videos";
 const GITHUB_PENDING_KEY = "kol-github-pending-ids";
+const HIDDEN_KEY = "kol-hidden-video-ids";
 
 const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 const URL_PATTERNS = [
@@ -124,6 +125,61 @@ export function removeLocalVideosByIds(videoIds: string[]): void {
   const next = loadLocalVideos().filter((v) => !drop.has(v.video_id));
   saveLocalVideos(next);
   clearGithubPendingIds(videoIds);
+}
+
+export function loadHiddenVideoIds(): Set<string> {
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY);
+    const ids = raw ? (JSON.parse(raw) as string[]) : [];
+    return new Set(ids.filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+export function addHiddenVideoIds(videoIds: string[]): void {
+  if (!videoIds.length) return;
+  const hidden = loadHiddenVideoIds();
+  videoIds.forEach((id) => hidden.add(id));
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden]));
+}
+
+export function clearHiddenVideoIds(videoIds: string[]): void {
+  if (!videoIds.length) return;
+  const drop = new Set(videoIds);
+  const next = [...loadHiddenVideoIds()].filter((id) => !drop.has(id));
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify(next));
+}
+
+export function applyDeletionToDashboard(
+  dashboard: DashboardData,
+  videoIds: Set<string>
+): DashboardData {
+  const rankings = dashboard.rankings.filter((row) => !videoIds.has(row.video_id));
+  const videos = dashboard.videos.filter((row) => !videoIds.has(row.video_id));
+  const daily_new_by_video = dashboard.daily_new_by_video.filter(
+    (row) => !videoIds.has(row.video_id)
+  );
+  const total_views = rankings.reduce((sum, row) => sum + row.view_count, 0);
+  const total_likes = rankings.reduce((sum, row) => sum + row.like_count, 0);
+  const total_comments = rankings.reduce((sum, row) => sum + row.comment_count, 0);
+
+  return {
+    ...dashboard,
+    videos,
+    rankings,
+    daily_new_by_video,
+    kpi: {
+      ...dashboard.kpi,
+      video_count: videos.length,
+      monitored_with_data: rankings.length,
+      total_views,
+      total_likes,
+      total_comments,
+      like_rate: total_views ? Math.round((total_likes / total_views) * 10000) / 100 : 0,
+      comment_rate: total_views ? Math.round((total_comments / total_views) * 10000) / 100 : 0,
+    },
+  };
 }
 
 export function loadGithubPendingIds(): Set<string> {

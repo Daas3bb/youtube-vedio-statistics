@@ -1,7 +1,14 @@
-import { buildVideoUrl, toCsvLine } from "./localVideos";
+import type { StaticSiteData } from "./api";
+import {
+  applyDeletionToDashboard,
+  buildVideoUrl,
+  toCsvLine,
+} from "./localVideos";
 
 const SETTINGS_KEY = "kol-github-sync-settings";
 const CSV_PATH = "inputs/videos.csv";
+const STORE_PATH = "data/store.json";
+const SITE_PATH = "frontend/public/data/site.json";
 
 export interface GithubSyncSettings {
   owner: string;
@@ -296,6 +303,243 @@ export async function appendVideosToGithubCsv(
   return { ok: false, reason: "write_failed:409:sha_conflict_after_retries" };
 }
 
+function buildCsvWithoutIds(
+  currentText: string,
+  dropIds: Set<string>
+): { nextText: string; removed: number } {
+  const lines = currentText.split(/\r?\n/);
+  if (!lines.length) {
+    return { nextText: currentText, removed: 0 };
+  }
+
+  const header = lines[0];
+  const kept = [header];
+  let removed = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const id = trimmed.split(",")[0]?.trim();
+    if (id && dropIds.has(id)) {
+      removed++;
+      continue;
+    }
+    kept.push(line);
+  }
+
+  const nextText = kept.length > 1 ? `${kept.join("\n")}\n` : `${header}\n`;
+  return { nextText, removed };
+}
+
+async function updateGithubTextFile(
+  path: string,
+  mutate: (currentText: string) => { nextText: string; changed: boolean },
+  message: string,
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!isGithubSyncReady(settings)) {
+    return { ok: false, reason: "no_token" };
+  }
+
+  const maxAttempts = 4;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await githubFetch(settings, path);
+    if (res.status === 404) {
+      return { ok: false, reason: "file_not_found" };
+    }
+    if (!res.ok) {
+      const err = await res.text();
+      return { ok: false, reason: `read_failed:${res.status}:${err.slice(0, 120)}` };
+    }
+
+    const payload = (await res.json()) as { content?: string; sha?: string };
+    if (!payload.content || !payload.sha) {
+      return { ok: false, reason: "invalid_file_payload" };
+    }
+
+    const currentText = base64ToUtf8(payload.content.replace(/\n/g, ""));
+    const { nextText, changed } = mutate(currentText);
+    if (!changed) {
+      return { ok: true };
+    }
+
+    const putRes = await fetch(
+      `https://api.github.com/repos/${settings.owner}/${settings.repo}/contents/${path}`,
+      {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${settings.token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          content: utf8ToBase64(nextText),
+          sha: payload.sha,
+          branch: settings.branch,
+        }),
+      }
+    );
+
+    if (putRes.ok) {
+      return { ok: true };
+    }
+
+    const err = await putRes.text();
+    if (putRes.status === 409 && attempt < maxAttempts) {
+      await sleep(600 * attempt);
+      continue;
+    }
+
+    return { ok: false, reason: `write_failed:${putRes.status}:${err.slice(0, 120)}` };
+  }
+
+  return { ok: false, reason: "write_failed:409:sha_conflict_after_retries" };
+}
+
+async function updateGithubJsonFile<T>(
+  path: string,
+  mutate: (data: T) => T | null,
+  message: string,
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  return updateGithubTextFile(
+    path,
+    (currentText) => {
+      const data = JSON.parse(currentText) as T;
+      const next = mutate(data);
+      if (!next) {
+        return { nextText: currentText, changed: false };
+      }
+      const nextText = `${JSON.stringify(next, null, 2)}\n`;
+      return { nextText, changed: nextText !== currentText };
+    },
+    message,
+    settings
+  );
+}
+
+function pruneSiteData(site: StaticSiteData, dropIds: Set<string>): StaticSiteData {
+  const dashboard = applyDeletionToDashboard(site.dashboard, dropIds);
+  const details = { ...site.details };
+  dropIds.forEach((id) => {
+    delete details[id];
+  });
+  return {
+    ...site,
+    generated_at: new Date().toISOString().slice(0, 19),
+    dashboard,
+    details,
+  };
+}
+
+export async function removeVideosFromGithubCsv(
+  videoIds: string[],
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: true; removed: number } | { ok: false; reason: string }> {
+  if (!videoIds.length) return { ok: false, reason: "empty" };
+
+  const dropIds = new Set(videoIds);
+  let removed = 0;
+  const result = await updateGithubTextFile(
+    CSV_PATH,
+    (currentText) => {
+      const next = buildCsvWithoutIds(currentText, dropIds);
+      removed = next.removed;
+      return { nextText: next.nextText, changed: next.removed > 0 };
+    },
+    `feat: remove ${videoIds.length} video(s) via dashboard`,
+    settings
+  );
+
+  if (!result.ok) return result;
+  return { ok: true, removed };
+}
+
+export async function removeVideosFromStoreJson(
+  videoIds: string[],
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!videoIds.length) return { ok: false, reason: "empty" };
+
+  const dropIds = new Set(videoIds);
+  return updateGithubJsonFile<{
+    videos: Array<{ video_id?: string }>;
+    history: Array<{ video_id?: string }>;
+  }>(
+    STORE_PATH,
+    (store) => {
+      const videos = (store.videos ?? []).filter(
+        (row) => row.video_id && !dropIds.has(row.video_id)
+      );
+      const history = (store.history ?? []).filter(
+        (row) => row.video_id && !dropIds.has(row.video_id)
+      );
+      const changed =
+        videos.length !== (store.videos ?? []).length ||
+        history.length !== (store.history ?? []).length;
+      if (!changed) return null;
+      return { ...store, videos, history };
+    },
+    `feat: purge ${videoIds.length} video(s) from store.json`,
+    settings
+  );
+}
+
+export async function removeVideosFromSiteJson(
+  videoIds: string[],
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (!videoIds.length) return { ok: false, reason: "empty" };
+
+  const dropIds = new Set(videoIds);
+  return updateGithubJsonFile<StaticSiteData>(
+    SITE_PATH,
+    (site) => {
+      const next = pruneSiteData(site, dropIds);
+      const changed =
+        next.dashboard.videos.length !== site.dashboard.videos.length ||
+        Object.keys(next.details).length !== Object.keys(site.details).length;
+      if (!changed) return null;
+      return next;
+    },
+    `feat: remove ${videoIds.length} video(s) from site.json`,
+    settings
+  );
+}
+
+export async function removeVideosFromGithub(
+  videoIds: string[],
+  settings: GithubSyncSettings = loadGithubSettings()
+): Promise<
+  | { ok: true; csvRemoved: number; storeUpdated: boolean; siteUpdated: boolean }
+  | { ok: false; reason: string }
+> {
+  if (!videoIds.length) return { ok: false, reason: "empty" };
+  if (!isGithubSyncReady(settings)) {
+    return { ok: false, reason: "no_token" };
+  }
+
+  const csvResult = await removeVideosFromGithubCsv(videoIds, settings);
+  if (!csvResult.ok) return csvResult;
+
+  const storeResult = await removeVideosFromStoreJson(videoIds, settings);
+  if (!storeResult.ok) return storeResult;
+
+  const siteResult = await removeVideosFromSiteJson(videoIds, settings);
+  if (!siteResult.ok) return siteResult;
+
+  return {
+    ok: true,
+    csvRemoved: csvResult.removed,
+    storeUpdated: true,
+    siteUpdated: true,
+  };
+}
+
 export async function verifyGithubSettings(
   settings: GithubSyncSettings = loadGithubSettings()
 ): Promise<{ ok: boolean; messages: string[] }> {
@@ -361,7 +605,9 @@ export function buildCsvAppendSnippet(videoIds: string[]): string {
 
 export function formatGithubSyncError(reason: string): string {
   if (reason === "no_token") return "未配置 GitHub Token";
-  if (reason === "csv_not_found") return "仓库中找不到 inputs/videos.csv";
+  if (reason === "csv_not_found" || reason === "file_not_found") {
+    return "仓库中找不到目标文件，请检查仓库名/分支";
+  }
   if (reason === "timeout") {
     return "等待超时：Actions 未在 10 分钟内启动或完成。请到仓库 Actions 页查看是否有排队/失败任务，并确认 Token 有 Actions: Read and write";
   }

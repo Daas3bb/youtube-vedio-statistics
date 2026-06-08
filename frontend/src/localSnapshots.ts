@@ -58,6 +58,13 @@ export function getLocalSnapshots(videoId: string): LocalSnapshot[] {
     .sort((a, b) => a.snapshot_time.localeCompare(b.snapshot_time));
 }
 
+export function removeLocalSnapshotsByVideoIds(videoIds: string[]): void {
+  if (!videoIds.length) return;
+  const drop = new Set(videoIds);
+  const next = loadAll().filter((row) => !drop.has(row.video_id));
+  saveAll(next);
+}
+
 function toHistoryPoints(rows: LocalSnapshot[]): HistoryPoint[] {
   return rows.map((row) => ({
     time: row.snapshot_time,

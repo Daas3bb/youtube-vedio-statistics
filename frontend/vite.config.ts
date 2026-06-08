@@ -1,16 +1,67 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "path";
 import { fileURLToPath } from "url";
+import type { Plugin } from "vite";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
+const execFileAsync = promisify(execFile);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+
+function localCollectPlugin(): Plugin {
+  let running = false;
+
+  return {
+    name: "local-collect",
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.url !== "/api/run-collect" || req.method !== "POST") {
+          next();
+          return;
+        }
+
+        if (running) {
+          res.statusCode = 429;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "collect_running" }));
+          return;
+        }
+
+        running = true;
+        res.setHeader("Content-Type", "application/json");
+
+        try {
+          await execFileAsync("python", ["scripts/collector.py"], {
+            cwd: PROJECT_ROOT,
+            timeout: 180_000,
+            windowsHide: true,
+          });
+          await execFileAsync("python", ["scripts/build_static.py"], {
+            cwd: PROJECT_ROOT,
+            timeout: 120_000,
+            windowsHide: true,
+          });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (error) {
+          res.statusCode = 500;
+          const message = error instanceof Error ? error.message : String(error);
+          res.end(JSON.stringify({ ok: false, error: message }));
+        } finally {
+          running = false;
+        }
+      });
+    },
+  };
+}
 
 function resolveUpstreamProxy(env: Record<string, string>): string {
   const direct = env.HTTPS_PROXY || env.HTTP_PROXY || "";
   if (direct) return direct;
-  const port = (env.PROXY_PORT || "").trim();
-  if (port) return `http://127.0.0.1:${port}`;
+  const ip = (env.PROXY_IP || "").trim();
+  if (ip) return `http://${ip}`;
   return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "";
 }
 
@@ -29,9 +80,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: process.env.PAGES_BASE || "/",
-    plugins: [react()],
+    plugins: [react(), localCollectPlugin()],
     server: {
-      port: 5173,
+      port: 3000,
       proxy: {
         "/yt-api": {
           target: "https://www.googleapis.com/youtube/v3",

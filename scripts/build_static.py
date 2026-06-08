@@ -49,7 +49,7 @@ def _apply_local_thumbnails(payload: dict) -> int:
 
 def build_site_json() -> dict:
     if not STORE_PATH.exists():
-        import_from_csv(VIDEOS_CSV, ROOT / "data" / "history.csv")
+        import_from_csv(VIDEOS_CSV)
 
     dashboard = build_dashboard()
     details: dict[str, dict] = {}

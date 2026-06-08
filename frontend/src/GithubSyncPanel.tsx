@@ -47,8 +47,12 @@ export function GithubSyncPanel({ onSaved }: GithubSyncPanelProps) {
 
   return (
     <div className="github-sync-panel">
-      <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
-        {ready ? "GitHub 同步已配置 ✓" : "GitHub 同步"}
+      <button
+        type="button"
+        className={`config-status-badge ${ready ? "ok" : "err"}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {ready ? "GitHub 同步已配置" : "GitHub 同步未配置"}
       </button>
       {open && (
         <div className="github-sync-form">

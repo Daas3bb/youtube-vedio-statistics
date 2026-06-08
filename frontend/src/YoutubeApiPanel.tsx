@@ -25,8 +25,12 @@ export function YoutubeApiPanel({ onSaved }: YoutubeApiPanelProps) {
 
   return (
     <div className="github-sync-panel">
-      <button type="button" className="btn" onClick={() => setOpen((v) => !v)}>
-        {ready ? "YouTube 即时采集 ✓" : "YouTube 即时采集"}
+      <button
+        type="button"
+        className={`config-status-badge ${ready ? "ok" : "err"}`}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {ready ? "YouTube 采集已配置" : "YouTube 采集未配置"}
       </button>
       {open && (
         <div className="github-sync-form">

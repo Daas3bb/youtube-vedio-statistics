@@ -41,7 +41,7 @@ Copy-Item .env.example .env
 python scripts/build_static.py
 ```
 
-首次运行会从 `inputs/videos.csv` 和 `data/history.csv` 导入到 `data/store.json`。
+首次运行会从 `inputs/videos.csv` 导入到 `data/store.json`。
 
 ### 3. 启动前端
 
@@ -369,8 +369,7 @@ docker compose up -d --build
 ```
 ├── .env.example
 ├── data/
-│   ├── store.json              # 主数据（视频 + 历史快照）
-│   └── history.csv             # 遗留 CSV（首次导入用）
+│   └── store.json              # 主数据（视频 + 历史快照）
 ├── inputs/
 │   └── videos.csv              # 监控视频列表（在此添加新视频）
 ├── scripts/

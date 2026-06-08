@@ -92,13 +92,24 @@ def upsert_video(video: dict[str, Any]) -> dict[str, str]:
 
 
 def delete_video(video_id: str) -> bool:
+    return delete_videos([video_id]) > 0
+
+
+def delete_videos(video_ids: list[str]) -> int:
+    drop = {vid.strip() for vid in video_ids if vid and vid.strip()}
+    if not drop:
+        return 0
+
     data = _load_store()
-    before = len(data["videos"])
-    data["videos"] = [v for v in data["videos"] if v.get("video_id") != video_id]
-    if len(data["videos"]) == before:
-        return False
+    before_videos = len(data["videos"])
+    before_history = len(data["history"])
+    data["videos"] = [v for v in data["videos"] if v.get("video_id") not in drop]
+    data["history"] = [row for row in data["history"] if row.get("video_id") not in drop]
+    removed = (before_videos - len(data["videos"])) + (before_history - len(data["history"]))
+    if not removed:
+        return 0
     _save_store(data)
-    return True
+    return before_videos - len(data["videos"])
 
 
 def list_history(video_id: str | None = None) -> list[dict[str, str]]:
