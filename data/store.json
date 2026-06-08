@@ -318,6 +318,24 @@
       "like_count": "8723",
       "comment_count": "644",
       "created_at": "2026-06-08 11:39:55"
+    },
+    {
+      "video_id": "dQw4w9WgXcQ",
+      "snapshot_time": "2026-06-08 04:58:16",
+      "snapshot_bucket": "2026-06-08 04:00:00",
+      "view_count": "1780532495",
+      "like_count": "19143906",
+      "comment_count": "2441113",
+      "created_at": "2026-06-08 04:58:16"
+    },
+    {
+      "video_id": "ALUoOoWpHJU",
+      "snapshot_time": "2026-06-08 04:58:16",
+      "snapshot_bucket": "2026-06-08 04:00:00",
+      "view_count": "107165",
+      "like_count": "8723",
+      "comment_count": "644",
+      "created_at": "2026-06-08 04:58:16"
     }
   ]
 }
