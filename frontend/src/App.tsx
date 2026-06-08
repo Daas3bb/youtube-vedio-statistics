@@ -27,7 +27,7 @@ import {
   loadGithubPendingIds,
   clearGithubPendingIds,
   updateLocalVideoMetadata,
-  videoSyncLabel,
+  videoSyncBadge,
 } from "./localVideos";
 import {
   appendVideosToGithubCsv,
@@ -38,7 +38,10 @@ import {
   runCollectNow,
 } from "./githubCsvSync";
 import { runLocalCollectScripts } from "./localCollect";
-import { GithubActionsPanel } from "./GithubActionsPanel";
+import {
+  GithubActionsPanel,
+  type GithubActionsPanelHandle,
+} from "./GithubActionsPanel";
 import { GithubSyncPanel } from "./GithubSyncPanel";
 import { YoutubeApiPanel } from "./YoutubeApiPanel";
 import { LazyChart } from "./LazyChart";
@@ -84,6 +87,8 @@ function engagementRates(views: number, likes: number, comments: number) {
 
 type RankSortKey = "view_count" | "like_count" | "comment_count";
 type RankSortOrder = "asc" | "desc";
+type VideoListSortKey = "created_at" | "publish_time";
+type VideoListSortOrder = "asc" | "desc";
 
 const DEFAULT_VIDEO_LIST_PAGE_SIZE = 5;
 const MAX_VIDEO_LIST_PAGE_SIZE = 100;
@@ -92,6 +97,23 @@ const RANK_LIST_PAGE_SIZE = 10;
 function createdAtTimestamp(createdAt: string): number {
   const t = Date.parse((createdAt || "").replace(" ", "T"));
   return Number.isNaN(t) ? 0 : t;
+}
+
+function publishTimeTimestamp(publishTime: string): number {
+  const t = Date.parse((publishTime || "").trim());
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function formatPublishDate(publishTime: string): string {
+  if (!publishTime) return "—";
+  return publishTime.slice(0, 10);
+}
+
+function formatAddedDate(createdAt: string): string {
+  if (!createdAt) return "—";
+  const t = Date.parse(createdAt.replace(" ", "T"));
+  if (Number.isNaN(t)) return createdAt;
+  return new Date(t).toLocaleString("zh-CN", { hour12: false });
 }
 
 function buildPaginationItems(current: number, total: number): Array<number | "ellipsis"> {
@@ -158,7 +180,6 @@ export default function App() {
   const [adding, setAdding] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [collectingAll, setCollectingAll] = useState(false);
-  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [hiddenVideoIds, setHiddenVideoIds] = useState<Set<string>>(() => loadHiddenVideoIds());
   const [localVideos, setLocalVideos] = useState<Video[]>(() => loadLocalVideos());
@@ -173,6 +194,8 @@ export default function App() {
   const [rankSortBy, setRankSortBy] = useState<RankSortKey>("view_count");
   const [rankSortOrder, setRankSortOrder] = useState<RankSortOrder>("desc");
   const [videoListSearch, setVideoListSearch] = useState("");
+  const [videoListSortBy, setVideoListSortBy] = useState<VideoListSortKey>("created_at");
+  const [videoListSortOrder, setVideoListSortOrder] = useState<VideoListSortOrder>("desc");
   const [videoListPage, setVideoListPage] = useState(1);
   const [videoListPageSize, setVideoListPageSize] = useState(() =>
     loadVideoListPageSize(DEFAULT_VIDEO_LIST_PAGE_SIZE, MAX_VIDEO_LIST_PAGE_SIZE)
@@ -186,6 +209,7 @@ export default function App() {
   const [activePage, setActivePage] = useState<PanelId>(() => pageFromHash());
   const serverDetailRef = useRef<Record<string, VideoDetail | null>>({});
   const lastSelectedIdRef = useRef("");
+  const actionsPanelRef = useRef<GithubActionsPanelHandle>(null);
 
   const videos = mergeVideos(serverVideos, localVideos).filter(
     (video) => !hiddenVideoIds.has(video.video_id)
@@ -199,11 +223,28 @@ export default function App() {
     [videos]
   );
 
+  const videosSortedForList = useMemo(() => {
+    const sorted = [...videos];
+    sorted.sort((a, b) => {
+      const aVal =
+        videoListSortBy === "created_at"
+          ? createdAtTimestamp(a.created_at)
+          : publishTimeTimestamp(a.publish_time);
+      const bVal =
+        videoListSortBy === "created_at"
+          ? createdAtTimestamp(b.created_at)
+          : publishTimeTimestamp(b.publish_time);
+      const diff = aVal - bVal;
+      return videoListSortOrder === "asc" ? diff : -diff;
+    });
+    return sorted;
+  }, [videos, videoListSortBy, videoListSortOrder]);
+
   const videosForList = useMemo(() => {
     const query = videoListSearch.trim();
-    if (!query) return videosSortedByNewest;
-    return videosSortedByNewest.filter((video) => matchVideo(video, query));
-  }, [videosSortedByNewest, videoListSearch]);
+    if (!query) return videosSortedForList;
+    return videosSortedForList.filter((video) => matchVideo(video, query));
+  }, [videosSortedForList, videoListSearch]);
 
   const videoListTotalPages = Math.max(
     1,
@@ -218,6 +259,10 @@ export default function App() {
   useEffect(() => {
     setVideoListPage(1);
   }, [videoListSearch]);
+
+  useEffect(() => {
+    setVideoListPage(1);
+  }, [videoListSortBy, videoListSortOrder]);
 
   useEffect(() => {
     if (videoListPage > videoListTotalPages) {
@@ -401,12 +446,15 @@ export default function App() {
   };
 
   const syncVideosToGithub = async (
-    ids: string[]
+    ids: string[],
+    options?: { quiet?: boolean }
   ): Promise<"ok" | "no_token" | "failed" | "skipped"> => {
     if (!ids.length) return "skipped";
 
     if (!githubSyncReady) {
-      showToast("请先点击「GitHub 同步」配置 Token 并保存", 6000);
+      if (!options?.quiet) {
+        showToast("请先点击「GitHub 同步」配置 Token 并保存", 6000);
+      }
       return "no_token";
     }
 
@@ -415,10 +463,12 @@ export default function App() {
     if (sync.ok) {
       markGithubPendingIds(ids);
       setGithubPendingIds(loadGithubPendingIds());
-      if (sync.added > 0) {
-        showToast(`已写入 inputs/videos.csv（${sync.added} 个），Actions 每 2 小时自动同步`, 6000);
-      } else {
-        showToast("视频已在 videos.csv 中", 5000);
+      if (!options?.quiet) {
+        if (sync.added > 0) {
+          showToast(`已写入 inputs/videos.csv（${sync.added} 个）`, 5000);
+        } else {
+          showToast("视频已在 videos.csv 中", 5000);
+        }
       }
       await refresh();
       return "ok";
@@ -480,7 +530,8 @@ export default function App() {
 
   const collectStatsForVideoIds = async (
     videoIds: string[],
-    source: "import" | "manual" | "batch" = "import"
+    source: "import" | "manual" | "batch" = "import",
+    options?: { skipPersist?: boolean }
   ) => {
     const uniqueIds = [...new Set(videoIds.filter(Boolean))];
     if (!uniqueIds.length) return;
@@ -537,7 +588,8 @@ export default function App() {
       const isSingleManual = source === "manual" && uniqueIds.length === 1;
       const firstStats = statsList[0];
       const collectedIds = statsList.map((stats) => stats.video_id);
-      const canPersistToFile = import.meta.env.DEV || githubSyncReady;
+      const canPersistToFile =
+        !options?.skipPersist && (import.meta.env.DEV || githubSyncReady);
 
       let persistResult: { ok: true } | { ok: false; error: string } | null = null;
       if (canPersistToFile) {
@@ -623,12 +675,40 @@ export default function App() {
     const ids = added.map((v) => v.video_id);
     if (!githubSyncReady) {
       downloadVideosCsv(ids, serverVideoIds);
-      showToast("已添加（仅本机）。配置 GitHub 同步后点「同步 GitHub」", 6000);
-      await collectStatsForVideoIds(ids, "import");
+      showToast("已添加（仅本机）。配置 GitHub 同步后将自动写入 CSV 并触发 Actions", 6000);
+      await collectStatsForVideoIds(ids, "import", { skipPersist: true });
       return;
     }
-    await syncVideosToGithub(ids);
-    await collectStatsForVideoIds(ids, "import");
+
+    const syncResult = await syncVideosToGithub(ids, { quiet: true });
+    if (syncResult !== "ok") {
+      await collectStatsForVideoIds(ids, "import", { skipPersist: true });
+      return;
+    }
+
+    showToast("已写入 CSV，正在触发 GitHub Actions 采集…", 6000);
+    await collectStatsForVideoIds(ids, "import", {
+      skipPersist: !import.meta.env.DEV,
+    });
+
+    if (import.meta.env.DEV) {
+      showToast("本地开发：已写入 store.json", 5000);
+      return;
+    }
+
+    const workflow = await actionsPanelRef.current?.triggerAndWatch({
+      onProgress: (msg) => showToast(msg, 6000),
+    });
+    if (workflow?.ok) {
+      clearGithubPendingIds(ids);
+      setGithubPendingIds(loadGithubPendingIds());
+      showToast("GitHub Actions 已完成，视频已同步至云端", 6000);
+    } else if (workflow) {
+      showToast(
+        `Actions 未成功完成：${formatGithubSyncError(workflow.reason)}，可在 Actions 面板查看`,
+        8000
+      );
+    }
   };
 
   const handleDeleteVideo = async (video: Video) => {
@@ -703,20 +783,6 @@ export default function App() {
       showToast(`已删除「${title}」`, 4000);
     } finally {
       setDeletingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(videoId);
-        return next;
-      });
-    }
-  };
-
-  const handleSyncToGithub = async (videoId: string) => {
-    if (syncingIds.has(videoId)) return;
-    setSyncingIds((prev) => new Set(prev).add(videoId));
-    try {
-      await syncVideosToGithub([videoId]);
-    } finally {
-      setSyncingIds((prev) => {
         const next = new Set(prev);
         next.delete(videoId);
         return next;
@@ -1190,6 +1256,7 @@ export default function App() {
         <GithubSyncPanel onSaved={() => setGithubSyncReady(isGithubSyncReady())} />
         <YoutubeApiPanel onSaved={() => setYoutubeApiReady(isYoutubeApiReady())} />
         <GithubActionsPanel
+          ref={actionsPanelRef}
           githubSyncReady={githubSyncReady}
           onCollectCompleted={() => {
             clearSiteCache();
@@ -1459,6 +1526,7 @@ export default function App() {
           </div>
         )}
         {videos.length > 0 && (
+          <>
           <div className="video-list-toolbar">
             <input
               type="search"
@@ -1478,6 +1546,34 @@ export default function App() {
               </button>
             )}
           </div>
+          <div className="video-list-sort-bar">
+            <span className="rank-sort-label">排序</span>
+            <button
+              type="button"
+              className={`btn rank-sort-btn${videoListSortBy === "created_at" ? " active" : ""}`}
+              onClick={() => setVideoListSortBy("created_at")}
+            >
+              添加时间
+            </button>
+            <button
+              type="button"
+              className={`btn rank-sort-btn${videoListSortBy === "publish_time" ? " active" : ""}`}
+              onClick={() => setVideoListSortBy("publish_time")}
+            >
+              发布时间
+            </button>
+            <button
+              type="button"
+              className={`rank-order-badge ${videoListSortOrder === "desc" ? "desc" : "asc"}`}
+              onClick={() =>
+                setVideoListSortOrder((order) => (order === "desc" ? "asc" : "desc"))
+              }
+              title="点击切换升序 / 降序"
+            >
+              {videoListSortOrder === "desc" ? "降序 ↓" : "升序 ↑"}
+            </button>
+          </div>
+          </>
         )}
         <div className="table-scroll">
         <table className="video-table">
@@ -1486,6 +1582,8 @@ export default function App() {
               <th>缩略图</th>
               <th>标题</th>
               <th className="col-middle">频道</th>
+              <th className="col-middle col-date">发布时间</th>
+              <th className="col-middle col-date">添加时间</th>
               <th className="col-middle">状态</th>
               <th className="col-middle">操作</th>
             </tr>
@@ -1493,7 +1591,7 @@ export default function App() {
           <tbody>
             {!pagedVideos.length ? (
               <tr>
-                <td colSpan={5} className="empty">
+                <td colSpan={7} className="empty">
                   {videoListSearch.trim() ? "无匹配视频" : "暂无视频"}
                 </td>
               </tr>
@@ -1501,10 +1599,7 @@ export default function App() {
             pagedVideos.map((v) => {
               const rank = visibleDashboard?.rankings.find((r) => r.video_id === v.video_id);
               const live = liveStats[v.video_id];
-              const syncLabel = videoSyncLabel(v.video_id, serverVideoIds, githubPendingIds);
-              const isLocal = Boolean(syncLabel);
-              const needsGithubSync = !serverVideoIds.has(v.video_id);
-              const isSyncing = syncingIds.has(v.video_id);
+              const syncBadge = videoSyncBadge(v.video_id, serverVideoIds, githubPendingIds);
               return (
                 <tr key={v.video_id}>
                   <td>
@@ -1519,7 +1614,6 @@ export default function App() {
                     >
                       {v.title || v.video_id}
                     </a>
-                    {syncLabel && <span className="local-badge">{syncLabel}</span>}
                     {(live || rank) && (
                       <div className="rank-meta">
                         {formatNum(live?.view_count ?? rank?.view_count ?? 0)} 播放 ·{" "}
@@ -1534,7 +1628,18 @@ export default function App() {
                     )}
                   </td>
                   <td className="col-middle">{v.channel_title || "—"}</td>
-                  <td className="col-middle">{isLocal ? "pending" : v.status}</td>
+                  <td className="col-middle col-date">{formatPublishDate(v.publish_time)}</td>
+                  <td className="col-middle col-date">{formatAddedDate(v.created_at)}</td>
+                  <td className="col-middle">
+                    {syncBadge && (
+                      <span className={`sync-badge sync-badge-${syncBadge.kind}`}>
+                        {syncBadge.text}
+                      </span>
+                    )}
+                    <div className={`video-status-meta${syncBadge ? "" : " video-status-meta-only"}`}>
+                      {!serverVideoIds.has(v.video_id) ? "pending" : v.status}
+                    </div>
+                  </td>
                   <td className="col-middle video-actions-cell">
                     <div className="video-actions">
                       <button
@@ -1544,17 +1649,6 @@ export default function App() {
                       >
                         详情
                       </button>
-                      {needsGithubSync && (
-                        <button
-                          className="btn btn-primary"
-                          style={{ padding: "4px 10px", fontSize: "0.8rem" }}
-                          onClick={() => handleSyncToGithub(v.video_id)}
-                          disabled={isSyncing}
-                          title="写入 GitHub inputs/videos.csv"
-                        >
-                          {isSyncing ? "同步中…" : githubPendingIds.has(v.video_id) ? "重试同步" : "同步 GitHub"}
-                        </button>
-                      )}
                       <button
                         className="btn btn-danger"
                         style={{ padding: "4px 10px", fontSize: "0.8rem" }}

@@ -216,12 +216,14 @@ export function updateLocalVideoMetadata(videoId: string, patch: Partial<Video>)
   }
 }
 
-export function videoSyncLabel(
+export type VideoSyncBadgeKind = "pending" | "local";
+
+export function videoSyncBadge(
   videoId: string,
   serverIds: Set<string>,
   pendingIds: Set<string>
-): string | null {
+): { text: string; kind: VideoSyncBadgeKind } | null {
   if (serverIds.has(videoId)) return null;
-  if (pendingIds.has(videoId)) return "已写入 CSV，待 Actions 同步";
-  return "仅本地，未同步 GitHub";
+  if (pendingIds.has(videoId)) return { text: "待 Actions", kind: "pending" };
+  return { text: "未同步", kind: "local" };
 }
