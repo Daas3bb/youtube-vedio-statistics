@@ -69,7 +69,7 @@ import {
   dateRangeForPreset,
   detectDetailDatePreset,
   filterHistoryForDetail,
-  isTodayOnlyFilter,
+  shouldCollapseDailySnapshots,
   loadDetailDateFilter,
   loadDetailSelectedId,
   rangeStats,
@@ -991,8 +991,9 @@ export default function App() {
   const detailRangeKpi = rangeStats(detailHistoryFiltered);
   const hasDateFilter = Boolean(detailDateFrom || detailDateTo);
   const detailDatePreset = detectDetailDatePreset(detailDateFrom, detailDateTo);
-  const isTodayView = isTodayOnlyFilter(detailDateFrom, detailDateTo);
-  const isDailyCollapsedView = hasDateFilter && !isTodayView;
+  const isDailyCollapsedView =
+    hasDateFilter && shouldCollapseDailySnapshots(detailDateFrom, detailDateTo);
+  const isPointLevelView = hasDateFilter && !isDailyCollapsedView;
 
   const visibleDashboard = useMemo(() => {
     if (!dashboard) return null;
@@ -1370,7 +1371,11 @@ export default function App() {
                   <>
                     已筛选 {detailDateFrom || "…"} ~ {detailDateTo || "…"} ·{" "}
                     {detailHistoryFiltered.length} 条快照
-                    {isDailyCollapsedView ? "（每日取最晚）" : isTodayView ? "（按小时）" : ""}
+                    {isDailyCollapsedView
+                      ? "（每日取最晚）"
+                      : isPointLevelView
+                        ? "（按采集时点）"
+                        : ""}
                   </>
                 ) : (
                   <>
@@ -1385,25 +1390,25 @@ export default function App() {
             <div className="kpi-grid" style={{ marginBottom: 16 }}>
               <div className="kpi-card">
                 <div className="label">
-                  {isTodayView || !hasDateFilter ? "当前播放" : "期末播放"}
+                  {isPointLevelView || !hasDateFilter ? "当前播放" : "期末播放"}
                 </div>
                 <div className="value">{formatNum(detailRangeKpi.view_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_views > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_views)}</div>
                 )}
-                {isTodayView && detailRangeKpi.snapshot_time && (
+                {isPointLevelView && detailRangeKpi.snapshot_time && (
                   <div className="kpi-sub">{detailRangeKpi.snapshot_time.slice(5, 16)}</div>
                 )}
               </div>
               <div className="kpi-card">
-                <div className="label">{isTodayView || !hasDateFilter ? "当前点赞" : "期末点赞"}</div>
+                <div className="label">{isPointLevelView || !hasDateFilter ? "当前点赞" : "期末点赞"}</div>
                 <div className="value">{formatNum(detailRangeKpi.like_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_likes > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_likes)}</div>
                 )}
               </div>
               <div className="kpi-card">
-                <div className="label">{isTodayView || !hasDateFilter ? "当前评论" : "期末评论"}</div>
+                <div className="label">{isPointLevelView || !hasDateFilter ? "当前评论" : "期末评论"}</div>
                 <div className="value">{formatNum(detailRangeKpi.comment_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_comments > 0 && (
                   <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_comments)}</div>

@@ -34,9 +34,23 @@ export function isTodayOnlyFilter(from: string, to: string): boolean {
   return from === today && to === today;
 }
 
-/** 「今天」保留小时快照；「近7天」「全部」等按日取最晚一条 */
+/** 起止日期 inclusive 天数；无完整区间时视为长区间 */
+export function dateRangeDayCount(from: string, to: string): number {
+  if (!from && !to) return Number.POSITIVE_INFINITY;
+  if (!from || !to) return Number.POSITIVE_INFINITY;
+  const [sy, sm, sd] = from.split("-").map(Number);
+  const [ey, em, ed] = to.split("-").map(Number);
+  const startUtc = Date.UTC(sy, sm - 1, sd);
+  const endUtc = Date.UTC(ey, em - 1, ed);
+  if (!Number.isFinite(startUtc) || !Number.isFinite(endUtc) || endUtc < startUtc) {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Math.floor((endUtc - startUtc) / 86_400_000) + 1;
+}
+
+/** 区间 < 7 天：保留同日各采集时点；≥ 7 天或「全部」：每日取最晚一条 */
 export function shouldCollapseDailySnapshots(from: string, to: string): boolean {
-  return !isTodayOnlyFilter(from, to);
+  return dateRangeDayCount(from, to) >= 7;
 }
 
 /** 播放量等为累计值：用运行最大值抹平 API 偶发回退 */
