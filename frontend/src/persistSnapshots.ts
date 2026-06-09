@@ -271,14 +271,14 @@ export async function persistCollectedSnapshots(
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (import.meta.env.DEV) {
-    options?.onProgress?.("正在写入 store.json 并重建 site.json…");
+    options?.onProgress?.("正在写入云端...");
     const result = await persistSnapshotsToLocal(snapshots);
     if (result.ok) return { ok: true };
     return { ok: false, error: result.error };
   }
 
   if (options?.githubSyncReady) {
-    options?.onProgress?.("正在写入云端 store.json 与 site.json…");
+    options?.onProgress?.("正在写入云端...");
     const result = await persistSnapshotsToGithub(snapshots);
     if (result.ok) return { ok: true };
     return { ok: false, error: formatGithubSyncError(result.reason) };
