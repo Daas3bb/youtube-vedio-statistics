@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,10 +7,11 @@
     <script>
       (function () {
         try {
-          if (localStorage.getItem("kol-theme") === "light") {
-            document.documentElement.setAttribute("data-theme", "light");
-          }
-        } catch (e) {}
+          var t = localStorage.getItem("kol-theme");
+          document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
       })();
     </script>
   </head>

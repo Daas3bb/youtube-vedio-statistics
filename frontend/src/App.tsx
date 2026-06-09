@@ -177,7 +177,22 @@ const detailChartGrid = {
   containLabel: true,
 };
 
+const CHART_FONT_SIZE = 14;
+
 type EngagementChartMode = "likes" | "comments";
+
+function openDatePicker(input: HTMLInputElement | null) {
+  if (!input) return;
+  if (typeof input.showPicker === "function") {
+    try {
+      input.showPicker();
+      return;
+    } catch {
+      // 部分浏览器需在用户手势内调用，失败则回退 click
+    }
+  }
+  input.click();
+}
 
 export default function App() {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -189,6 +204,8 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [detailDateFrom, setDetailDateFrom] = useState(() => loadDetailDateFilter().from);
   const [detailDateTo, setDetailDateTo] = useState(() => loadDetailDateFilter().to);
+  const detailDateFromRef = useRef<HTMLInputElement>(null);
+  const detailDateToRef = useRef<HTMLInputElement>(null);
   const [engagementChartMode, setEngagementChartMode] = useState<EngagementChartMode>("likes");
   const [input, setInput] = useState("");
   const [batchInput, setBatchInput] = useState("");
@@ -1089,12 +1106,15 @@ export default function App() {
               return html;
             },
           },
-          legend: { data: ["播放量", "新增播放"], textStyle: { color: chartColors.muted } },
+          legend: {
+            data: ["播放量", "新增播放"],
+            textStyle: { color: chartColors.muted, fontSize: CHART_FONT_SIZE },
+          },
           grid: detailChartGrid,
           xAxis: {
             type: "category",
             data: detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || ""),
-            axisLabel: { color: chartColors.muted, margin: 10 },
+            axisLabel: { color: chartColors.muted, fontSize: CHART_FONT_SIZE, margin: 10 },
           },
           yAxis: [
             {
@@ -1102,10 +1122,12 @@ export default function App() {
               name: "播放量",
               position: "left",
               nameGap: 12,
+              nameTextStyle: { fontSize: CHART_FONT_SIZE },
               ...viewAxis,
               scale: true,
               axisLabel: {
                 color: chartColors.muted,
+                fontSize: CHART_FONT_SIZE,
                 formatter: (v: number) => formatNum(v),
                 margin: 12,
               },
@@ -1116,8 +1138,10 @@ export default function App() {
               name: "新增播放",
               position: "right",
               nameGap: 12,
+              nameTextStyle: { fontSize: CHART_FONT_SIZE },
               axisLabel: {
                 color: chartColors.muted,
+                fontSize: CHART_FONT_SIZE,
                 formatter: (v: number) => formatDeltaNum(v),
                 margin: 12,
               },
@@ -1139,8 +1163,9 @@ export default function App() {
               name: "新增播放",
               type: "bar",
               yAxisIndex: 1,
+              barMaxWidth: 30,
               data: [0, ...detailDeltasFiltered.map((d) => d.delta_views)],
-              itemStyle: { color: "#22c55e", opacity: 0.75, borderRadius: [3, 3, 0, 0] },
+              itemStyle: { color: "#6FCF97", opacity: 0.85, borderRadius: [2, 2, 0, 0] },
             },
           ],
         };
@@ -1181,12 +1206,15 @@ export default function App() {
           return html;
         },
       },
-      legend: { data: [mainName, deltaName], textStyle: { color: chartColors.muted } },
+      legend: {
+        data: [mainName, deltaName],
+        textStyle: { color: chartColors.muted, fontSize: CHART_FONT_SIZE },
+      },
       grid: detailChartGrid,
       xAxis: {
         type: "category",
         data: timeLabels,
-        axisLabel: { color: chartColors.muted, margin: 10 },
+        axisLabel: { color: chartColors.muted, fontSize: CHART_FONT_SIZE, margin: 10 },
       },
       yAxis: [
         {
@@ -1194,10 +1222,12 @@ export default function App() {
           name: mainName,
           position: "left",
           nameGap: 12,
+          nameTextStyle: { fontSize: CHART_FONT_SIZE },
           ...mainAxis,
           scale: true,
           axisLabel: {
             color: chartColors.muted,
+            fontSize: CHART_FONT_SIZE,
             formatter: (v: number) => formatNum(v),
             margin: 12,
           },
@@ -1208,10 +1238,12 @@ export default function App() {
           name: deltaName,
           position: "right",
           nameGap: 12,
+          nameTextStyle: { fontSize: CHART_FONT_SIZE },
           ...deltaAxis,
           scale: true,
           axisLabel: {
             color: chartColors.muted,
+            fontSize: CHART_FONT_SIZE,
             formatter: (v: number) => formatDeltaNum(v),
             margin: 12,
           },
@@ -1233,7 +1265,7 @@ export default function App() {
           name: deltaName,
           type: "bar",
           yAxisIndex: 1,
-          barMaxWidth: 20,
+          barMaxWidth: 30,
           data: deltaValues,
           itemStyle: { color: barColor, opacity: 0.85, borderRadius: [3, 3, 0, 0] },
         },
@@ -1350,26 +1382,58 @@ export default function App() {
 
           {detailHistoryAll.length > 0 && (
             <div className="detail-date-filter">
-              <label>
-                起始日期
+              <div
+                className="detail-date-field"
+                role="button"
+                tabIndex={0}
+                onClick={() => openDatePicker(detailDateFromRef.current)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openDatePicker(detailDateFromRef.current);
+                  }
+                }}
+              >
+                <span className="detail-date-field-label">起始日期</span>
                 <input
+                  ref={detailDateFromRef}
                   type="date"
                   value={detailDateFrom}
                   min={detailDateBounds.min}
                   max={detailDateTo || detailDateBounds.max}
                   onChange={(e) => setDetailDateFrom(e.target.value)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDatePicker(detailDateFromRef.current);
+                  }}
                 />
-              </label>
-              <label>
-                结束日期
+              </div>
+              <div
+                className="detail-date-field"
+                role="button"
+                tabIndex={0}
+                onClick={() => openDatePicker(detailDateToRef.current)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openDatePicker(detailDateToRef.current);
+                  }
+                }}
+              >
+                <span className="detail-date-field-label">结束日期</span>
                 <input
+                  ref={detailDateToRef}
                   type="date"
                   value={detailDateTo}
                   min={detailDateFrom || detailDateBounds.min}
                   max={detailDateBounds.max}
                   onChange={(e) => setDetailDateTo(e.target.value)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openDatePicker(detailDateToRef.current);
+                  }}
                 />
-              </label>
+              </div>
               <button
                 type="button"
                 className={`btn detail-date-preset-btn${detailDatePreset === "today" ? " active" : ""}`}

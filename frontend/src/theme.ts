@@ -5,9 +5,11 @@ const STORAGE_KEY = "kol-theme";
 export function loadTheme(): Theme {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved === "light" ? "light" : "dark";
+    if (saved === "dark") return "dark";
+    if (saved === "light") return "light";
+    return "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
