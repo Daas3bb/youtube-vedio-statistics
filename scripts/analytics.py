@@ -1,7 +1,8 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
+from config import collect_today, collect_yesterday
 from storage import list_history, list_videos
 
 
@@ -63,8 +64,8 @@ def compute_daily_delta_views() -> int:
             per_video_day[vid][day] = views
             per_video_dt[vid][day] = dt
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today = collect_today()
+    yesterday = collect_yesterday()
     total_delta = 0
     for days in per_video_day.values():
         t_views = days.get(today)
@@ -125,8 +126,8 @@ def build_dashboard() -> dict[str, Any]:
             per_vid_days[vid][day] = views
             per_vid_dt[vid][day] = dt
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    today = collect_today()
+    yesterday = collect_yesterday()
     for vid, days in per_vid_days.items():
         t, y = days.get(today), days.get(yesterday)
         if t is not None and y is not None:

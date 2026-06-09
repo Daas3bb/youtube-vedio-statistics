@@ -1,4 +1,5 @@
 import type { StaticSiteData, VideoDetail } from "./api";
+import { generatedAtNow } from "./collectTimezone";
 import { computeDeltas } from "./detailFilter";
 import {
   formatGithubSyncError,
@@ -106,7 +107,7 @@ function patchSiteWithSnapshots(
 ): StaticSiteData {
   const next: StaticSiteData = {
     ...site,
-    generated_at: new Date().toISOString().slice(0, 19),
+    generated_at: generatedAtNow(),
     dashboard: {
       ...site.dashboard,
       rankings: [...site.dashboard.rankings],
@@ -169,7 +170,7 @@ export async function persistSnapshotsToGithub(
   if (!snapshots.length) return { ok: false, reason: "empty" };
   if (!isGithubSyncReady(settings)) return { ok: false, reason: "no_token" };
 
-  const createdAt = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const createdAt = generatedAtNow().replace("T", " ");
   let written = 0;
 
   const storeResult = await updateGithubJsonFile<{

@@ -1,3 +1,5 @@
+import { daysAgoCollect, todayCollect } from "./collectTimezone";
+
 export interface HistoryPoint {
   time: string;
   views: number;
@@ -28,7 +30,7 @@ function sortByTime(history: HistoryPoint[]): HistoryPoint[] {
 }
 
 export function isTodayOnlyFilter(from: string, to: string): boolean {
-  const today = todayLocal();
+  const today = todayCollect();
   return from === today && to === today;
 }
 
@@ -137,21 +139,14 @@ export function availableDateRange(history: HistoryPoint[]): {
   return { min: days[0] || "", max: days[days.length - 1] || "" };
 }
 
+/** @deprecated 使用 todayCollect；保留别名以兼容旧引用 */
 export function todayLocal(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return todayCollect();
 }
 
+/** @deprecated 使用 daysAgoCollect；保留别名以兼容旧引用 */
 export function daysAgoLocal(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return daysAgoCollect(n);
 }
 
 export type DetailDatePreset = "today" | "last7" | "last30" | "all" | "custom";
@@ -162,10 +157,10 @@ const DETAIL_DATE_TO_KEY = "kol-detail-date-to";
 
 export function detectDetailDatePreset(from: string, to: string): DetailDatePreset {
   if (!from && !to) return "all";
-  const today = todayLocal();
+  const today = todayCollect();
   if (from === today && to === today) return "today";
-  if (from === daysAgoLocal(6) && to === today) return "last7";
-  if (from === daysAgoLocal(29) && to === today) return "last30";
+  if (from === daysAgoCollect(6) && to === today) return "last7";
+  if (from === daysAgoCollect(29) && to === today) return "last30";
   return "custom";
 }
 
@@ -173,10 +168,10 @@ export function dateRangeForPreset(preset: Exclude<DetailDatePreset, "custom" | 
   from: string;
   to: string;
 } {
-  const today = todayLocal();
+  const today = todayCollect();
   if (preset === "today") return { from: today, to: today };
-  if (preset === "last7") return { from: daysAgoLocal(6), to: today };
-  return { from: daysAgoLocal(29), to: today };
+  if (preset === "last7") return { from: daysAgoCollect(6), to: today };
+  return { from: daysAgoCollect(29), to: today };
 }
 
 export function loadDetailSelectedId(): string {

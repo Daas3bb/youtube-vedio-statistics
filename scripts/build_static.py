@@ -3,13 +3,12 @@ Export data/store.json to frontend/public/data/site.json for static deployment.
 """
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from analytics import build_dashboard, video_detail  # noqa: E402
-from config import ROOT, STATIC_OUTPUT, STORE_PATH, VIDEOS_CSV  # noqa: E402
+from config import ROOT, STATIC_OUTPUT, STORE_PATH, VIDEOS_CSV, collect_now  # noqa: E402
 from storage import import_from_csv, list_videos  # noqa: E402
 from thumbnails import download_thumbnail, local_thumbnail_path  # noqa: E402
 
@@ -62,7 +61,7 @@ def build_site_json() -> dict:
             details[vid] = detail
 
     return {
-        "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "generated_at": collect_now().strftime("%Y-%m-%dT%H:%M:%S"),
         "mode": "static",
         "dashboard": dashboard,
         "details": details,

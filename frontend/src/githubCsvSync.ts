@@ -1,4 +1,5 @@
 import type { StaticSiteData } from "./api";
+import { generatedAtNow } from "./collectTimezone";
 import {
   applyDeletionToDashboard,
   buildVideoUrl,
@@ -580,7 +581,7 @@ function pruneSiteData(site: StaticSiteData, dropIds: Set<string>): StaticSiteDa
   });
   return {
     ...site,
-    generated_at: new Date().toISOString().slice(0, 19),
+    generated_at: generatedAtNow(),
     dashboard,
     details,
   };

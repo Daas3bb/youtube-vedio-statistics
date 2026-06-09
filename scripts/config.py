@@ -1,5 +1,7 @@
 import os
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -28,3 +30,19 @@ VIDEOS_CSV = INPUTS_DIR / "videos.csv"
 
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
 DEDUP_GRANULARITY = os.environ.get("DEDUP_GRANULARITY", "hour")
+
+# 与看板「今天」筛选一致：默认中国标准时间 UTC+8
+COLLECT_TZ = ZoneInfo(os.environ.get("COLLECT_TIMEZONE", "Asia/Shanghai"))
+
+
+def collect_now() -> datetime:
+    """采集时区下的 naive 本地时间（用于 snapshot_time / 日期桶）。"""
+    return datetime.now(COLLECT_TZ).replace(tzinfo=None)
+
+
+def collect_today() -> str:
+    return collect_now().strftime("%Y-%m-%d")
+
+
+def collect_yesterday() -> str:
+    return (collect_now() - timedelta(days=1)).strftime("%Y-%m-%d")

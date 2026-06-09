@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from config import DEDUP_GRANULARITY, STORE_PATH
+from config import DEDUP_GRANULARITY, STORE_PATH, collect_now
 
 VIDEO_FIELDS = [
     "video_id",
@@ -61,7 +61,7 @@ def get_video(video_id: str) -> dict[str, str] | None:
 def upsert_video(video: dict[str, Any]) -> dict[str, str]:
     data = _load_store()
     vid = video["video_id"]
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = collect_now().strftime("%Y-%m-%d %H:%M:%S")
     updated: dict[str, str] | None = None
 
     for row in data["videos"]:
@@ -144,7 +144,7 @@ def append_snapshot_exact(
         return False, f"无效时间格式: {snapshot_time}"
 
     bucket = bucket_time(dt)
-    created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    created = collect_now().strftime("%Y-%m-%d %H:%M:%S")
     data = _load_store()
     for row in data["history"]:
         if row.get("video_id") == video_id and row.get("snapshot_time") == snap_str:
@@ -172,10 +172,10 @@ def append_snapshot(
     comment_count: int,
     snapshot_time: datetime | None = None,
 ) -> tuple[bool, str]:
-    dt = snapshot_time or datetime.now()
+    dt = snapshot_time or collect_now()
     bucket = bucket_time(dt)
     snap_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-    created = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    created = collect_now().strftime("%Y-%m-%d %H:%M:%S")
 
     data = _load_store()
     for row in data["history"]:
@@ -214,7 +214,7 @@ def import_from_csv(videos_csv: Path, history_csv: Path | None = None) -> None:
                     continue
                 entry = {k: row.get(k, "") for k in VIDEO_FIELDS}
                 if not (entry.get("created_at") or "").strip():
-                    entry["created_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    entry["created_at"] = collect_now().strftime("%Y-%m-%d %H:%M:%S")
                 data["videos"].append(entry)
                 existing_ids.add(vid)
 

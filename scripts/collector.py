@@ -4,13 +4,12 @@ Reads videos from data/store.json, fetches YouTube stats, appends history snapsh
 """
 import asyncio
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from analytics import build_dashboard  # noqa: E402
-from config import ROOT, VIDEOS_CSV, YOUTUBE_API_KEY  # noqa: E402
+from config import ROOT, VIDEOS_CSV, YOUTUBE_API_KEY, collect_now  # noqa: E402
 from storage import append_snapshot, import_from_csv, list_videos, upsert_video  # noqa: E402
 from youtube_client import fetch_video_stats  # noqa: E402
 
@@ -58,7 +57,7 @@ async def collect_all() -> dict:
             data["view_count"],
             data["like_count"],
             data["comment_count"],
-            snapshot_time=datetime.now(),
+            snapshot_time=collect_now(),
         )
         if ok:
             written += 1
