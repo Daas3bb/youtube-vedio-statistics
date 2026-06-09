@@ -53,6 +53,11 @@ export function shouldCollapseDailySnapshots(from: string, to: string): boolean 
   return dateRangeDayCount(from, to) >= 7;
 }
 
+/** 今天或起止为同一天：KPI 展示当前累计值，否则展示区间增量 */
+export function isSingleDayDetailFilter(from: string, to: string): boolean {
+  return dateRangeDayCount(from, to) === 1;
+}
+
 /** 播放量等为累计值：用运行最大值抹平 API 偶发回退 */
 export function normalizeCumulativeHistory(history: HistoryPoint[]): HistoryPoint[] {
   let maxViews = 0;
