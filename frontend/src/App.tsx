@@ -85,6 +85,17 @@ function formatNum(n: number) {
   return n.toFixed(3);
 }
 
+/** 新增播放 / 新增点赞 / 新增评论等增量数据 */
+function formatDeltaNum(n: number) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toFixed(1);
+}
+
+function isDeltaSeriesName(name: string) {
+  return name.startsWith("新增");
+}
+
 function engagementRates(views: number, likes: number, comments: number) {
   if (!views) return { likeRate: 0, commentRate: 0 };
   return {
@@ -1066,7 +1077,9 @@ export default function App() {
               const time = String(items[0]?.name ?? "");
               let html = `时间：${time}<br/>`;
               for (const p of items) {
-                html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
+                const label = String(p.seriesName ?? "");
+                const fmt = isDeltaSeriesName(label) ? formatDeltaNum : formatNum;
+                html += `${p.marker}${label}：${fmt(Number(p.value))}<br/>`;
               }
               return html;
             },
@@ -1100,7 +1113,7 @@ export default function App() {
               nameGap: 12,
               axisLabel: {
                 color: "#8b9cb3",
-                formatter: (v: number) => formatNum(v),
+                formatter: (v: number) => formatDeltaNum(v),
                 margin: 12,
               },
               splitLine: { show: false },
@@ -1156,7 +1169,9 @@ export default function App() {
           const time = String(items[0]?.name ?? "");
           let html = `时间：${time}<br/>`;
           for (const p of items) {
-            html += `${p.marker}${p.seriesName}：${formatNum(Number(p.value))}<br/>`;
+            const label = String(p.seriesName ?? "");
+            const fmt = isDeltaSeriesName(label) ? formatDeltaNum : formatNum;
+            html += `${p.marker}${label}：${fmt(Number(p.value))}<br/>`;
           }
           return html;
         },
@@ -1192,7 +1207,7 @@ export default function App() {
           scale: true,
           axisLabel: {
             color: "#8b9cb3",
-            formatter: (v: number) => formatNum(v),
+            formatter: (v: number) => formatDeltaNum(v),
             margin: 12,
           },
           splitLine: { show: false },
@@ -1394,7 +1409,7 @@ export default function App() {
                 </div>
                 <div className="value">{formatNum(detailRangeKpi.view_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_views > 0 && (
-                  <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_views)}</div>
+                  <div className="kpi-sub">+{formatDeltaNum(detailRangeKpi.delta_views)}</div>
                 )}
                 {isPointLevelView && detailRangeKpi.snapshot_time && (
                   <div className="kpi-sub">{detailRangeKpi.snapshot_time.slice(5, 16)}</div>
@@ -1404,14 +1419,14 @@ export default function App() {
                 <div className="label">{isPointLevelView || !hasDateFilter ? "当前点赞" : "期末点赞"}</div>
                 <div className="value">{formatNum(detailRangeKpi.like_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_likes > 0 && (
-                  <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_likes)}</div>
+                  <div className="kpi-sub">+{formatDeltaNum(detailRangeKpi.delta_likes)}</div>
                 )}
               </div>
               <div className="kpi-card">
                 <div className="label">{isPointLevelView || !hasDateFilter ? "当前评论" : "期末评论"}</div>
                 <div className="value">{formatNum(detailRangeKpi.comment_count)}</div>
                 {isDailyCollapsedView && detailRangeKpi.delta_comments > 0 && (
-                  <div className="kpi-sub">+{formatNum(detailRangeKpi.delta_comments)}</div>
+                  <div className="kpi-sub">+{formatDeltaNum(detailRangeKpi.delta_comments)}</div>
                 )}
               </div>
             </div>
