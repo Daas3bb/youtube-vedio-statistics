@@ -79,6 +79,7 @@ import {
   type DetailDatePreset,
   type HistoryPoint,
 } from "./detailFilter";
+import { loadTheme, readChartCssColors, toggleTheme, type Theme } from "./theme";
 
 function formatNum(n: number) {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(3) + "M";
@@ -184,6 +185,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(() => loadDetailSelectedId());
   const [loading, setLoading] = useState(false);
   const [generatedAt, setGeneratedAt] = useState("");
+  const [theme, setTheme] = useState<Theme>(() => loadTheme());
   const [toast, setToast] = useState("");
   const [detailDateFrom, setDetailDateFrom] = useState(() => loadDetailDateFilter().from);
   const [detailDateTo, setDetailDateTo] = useState(() => loadDetailDateFilter().to);
@@ -1066,11 +1068,12 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const detailViewsOption = detailHistoryFiltered.length
-    ? (() => {
-        const viewValues = detailHistoryFiltered.map((h) => h.views);
-        const viewAxis = trendAxisBounds(viewValues);
-        return {
+  const detailViewsOption = useMemo(() => {
+    if (!detailHistoryFiltered.length) return {};
+    const chartColors = readChartCssColors();
+    const viewValues = detailHistoryFiltered.map((h) => h.views);
+    const viewAxis = trendAxisBounds(viewValues);
+    return {
           backgroundColor: "transparent",
           tooltip: {
             trigger: "axis",
@@ -1086,12 +1089,12 @@ export default function App() {
               return html;
             },
           },
-          legend: { data: ["播放量", "新增播放"], textStyle: { color: "#8b9cb3" } },
+          legend: { data: ["播放量", "新增播放"], textStyle: { color: chartColors.muted } },
           grid: detailChartGrid,
           xAxis: {
             type: "category",
             data: detailHistoryFiltered.map((h) => h.time?.slice(5, 16) || ""),
-            axisLabel: { color: "#8b9cb3", margin: 10 },
+            axisLabel: { color: chartColors.muted, margin: 10 },
           },
           yAxis: [
             {
@@ -1102,11 +1105,11 @@ export default function App() {
               ...viewAxis,
               scale: true,
               axisLabel: {
-                color: "#8b9cb3",
+                color: chartColors.muted,
                 formatter: (v: number) => formatNum(v),
                 margin: 12,
               },
-              splitLine: { lineStyle: { color: "#2d3a4f" } },
+              splitLine: { lineStyle: { color: chartColors.grid } },
             },
             {
               type: "value",
@@ -1114,7 +1117,7 @@ export default function App() {
               position: "right",
               nameGap: 12,
               axisLabel: {
-                color: "#8b9cb3",
+                color: chartColors.muted,
                 formatter: (v: number) => formatDeltaNum(v),
                 margin: 12,
               },
@@ -1141,11 +1144,11 @@ export default function App() {
             },
           ],
         };
-      })()
-    : {};
+  }, [detailHistoryFiltered, detailDeltasFiltered, theme]);
 
   const detailEngagementOption = useMemo(() => {
     if (!detailHistoryFiltered.length) return {};
+    const chartColors = readChartCssColors();
 
     const isLikes = engagementChartMode === "likes";
     const mainValues = detailHistoryFiltered.map((h) => (isLikes ? h.likes : h.comments));
@@ -1178,12 +1181,12 @@ export default function App() {
           return html;
         },
       },
-      legend: { data: [mainName, deltaName], textStyle: { color: "#8b9cb3" } },
+      legend: { data: [mainName, deltaName], textStyle: { color: chartColors.muted } },
       grid: detailChartGrid,
       xAxis: {
         type: "category",
         data: timeLabels,
-        axisLabel: { color: "#8b9cb3", margin: 10 },
+        axisLabel: { color: chartColors.muted, margin: 10 },
       },
       yAxis: [
         {
@@ -1194,11 +1197,11 @@ export default function App() {
           ...mainAxis,
           scale: true,
           axisLabel: {
-            color: "#8b9cb3",
+            color: chartColors.muted,
             formatter: (v: number) => formatNum(v),
             margin: 12,
           },
-          splitLine: { lineStyle: { color: "#2d3a4f" } },
+          splitLine: { lineStyle: { color: chartColors.grid } },
         },
         {
           type: "value",
@@ -1208,7 +1211,7 @@ export default function App() {
           ...deltaAxis,
           scale: true,
           axisLabel: {
-            color: "#8b9cb3",
+            color: chartColors.muted,
             formatter: (v: number) => formatDeltaNum(v),
             margin: 12,
           },
@@ -1236,7 +1239,7 @@ export default function App() {
         },
       ],
     };
-  }, [detailHistoryFiltered, detailDeltasFiltered, engagementChartMode]);
+  }, [detailHistoryFiltered, detailDeltasFiltered, engagementChartMode, theme]);
 
   const kpi = visibleDashboard?.kpi;
 
@@ -1252,6 +1255,18 @@ export default function App() {
             <p className="header-subtitle">每 2 小时同步一次云端数据</p>
           </div>
           <div className="header-actions">
+            <button
+              type="button"
+              className={`theme-switch${theme === "light" ? " is-light" : ""}`}
+              onClick={() => setTheme(toggleTheme(theme))}
+              aria-label={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
+              title={theme === "light" ? "切换到夜间模式" : "切换到日间模式"}
+            >
+              <span className="theme-switch-label">{theme === "light" ? "日间" : "夜间"}</span>
+              <span className="theme-switch-track" aria-hidden>
+                <span className="theme-switch-thumb" />
+              </span>
+            </button>
             {generatedAt && (
               <span className="badge ok">更新于 {generatedAt.slice(0, 16)}</span>
             )}
