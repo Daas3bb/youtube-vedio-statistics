@@ -128,10 +128,11 @@ function videoDailyIncrements(
     if (!day || day < from || day > to) continue;
 
     const prev = i > 0 ? daily[i - 1] : null;
+    // 首次代表快照仅建立基线，不计入增量（避免批量首次采集日虚高）
     increments.set(day, {
-      delta_views: prev ? point.views - prev.views : point.views,
-      delta_likes: prev ? point.likes - prev.likes : point.likes,
-      delta_comments: prev ? point.comments - prev.comments : point.comments,
+      delta_views: prev ? point.views - prev.views : 0,
+      delta_likes: prev ? point.likes - prev.likes : 0,
+      delta_comments: prev ? point.comments - prev.comments : 0,
     });
   }
 

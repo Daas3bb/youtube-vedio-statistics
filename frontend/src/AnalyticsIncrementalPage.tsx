@@ -124,7 +124,7 @@ export function IncrementalTrendSection({
     <div className="analytics-trend-section">
       <h3 className="analytics-section-title">增量数据趋势</h3>
       <p className="analytics-section-desc">
-        每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后，按日汇总全部视频；上方 KPI 为所选日期范围内每日新增之和。
+        每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。上方 KPI 为所选日期范围内每日新增之和。
       </p>
 
       {trendPoints.length > 0 && (
