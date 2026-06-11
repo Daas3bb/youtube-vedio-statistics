@@ -110,31 +110,58 @@ export function aggregateCumulativeTrend(
   });
 }
 
+/** 每个自然日取代表快照后，计算该视频相对上一条代表快照的增量 */
+function videoDailyIncrements(
+  history: HistoryPoint[],
+  from: string,
+  to: string
+): Map<string, Pick<DailyIncrementalPoint, "delta_views" | "delta_likes" | "delta_comments">> {
+  const daily = collapseDailySnapshots(normalizeCumulativeHistory(history));
+  const increments = new Map<
+    string,
+    Pick<DailyIncrementalPoint, "delta_views" | "delta_likes" | "delta_comments">
+  >();
+
+  for (let i = 0; i < daily.length; i++) {
+    const point = daily[i];
+    const day = dayOf(point.time);
+    if (!day || day < from || day > to) continue;
+
+    const prev = i > 0 ? daily[i - 1] : null;
+    increments.set(day, {
+      delta_views: prev ? point.views - prev.views : point.views,
+      delta_likes: prev ? point.likes - prev.likes : point.likes,
+      delta_comments: prev ? point.comments - prev.comments : point.comments,
+    });
+  }
+
+  return increments;
+}
+
 export function aggregateIncrementalTrend(
   videos: Video[],
   serverDetails: Record<string, VideoDetail | null | undefined>,
   from: string,
   to: string
 ): DailyIncrementalPoint[] {
-  if (!from || !to) return [];
+  const days = enumerateDays(from, to);
+  if (!days.length) return [];
 
-  const extendedFrom = dayBefore(from);
-  const cumulative = aggregateCumulativeTrend(videos, serverDetails, extendedFrom, to);
-  const result: DailyIncrementalPoint[] = [];
+  const totals = new Map<string, DailyIncrementalPoint>(
+    days.map((day) => [day, { day, delta_views: 0, delta_likes: 0, delta_comments: 0 }])
+  );
 
-  for (let i = 1; i < cumulative.length; i++) {
-    const prev = cumulative[i - 1];
-    const curr = cumulative[i];
-    if (curr.day < from) continue;
-    result.push({
-      day: curr.day,
-      delta_views: Math.max(0, curr.views - prev.views),
-      delta_likes: Math.max(0, curr.likes - prev.likes),
-      delta_comments: Math.max(0, curr.comments - prev.comments),
-    });
+  for (const detail of buildMergedDetails(videos, serverDetails)) {
+    for (const [day, delta] of videoDailyIncrements(detail.history, from, to)) {
+      const row = totals.get(day);
+      if (!row) continue;
+      row.delta_views += delta.delta_views;
+      row.delta_likes += delta.delta_likes;
+      row.delta_comments += delta.delta_comments;
+    }
   }
 
-  return result;
+  return days.map((day) => totals.get(day)!);
 }
 
 export function cumulativeKpi(points: DailyTotalPoint[]) {
