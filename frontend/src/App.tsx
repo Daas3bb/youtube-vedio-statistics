@@ -12,6 +12,7 @@ import {
   type VideoDetail,
 } from "./api";
 import { AnalyticsKpiValue } from "./AnalyticsKpiValue";
+import { AnalyticsPageTitle, type AnalyticsPageHint } from "./AnalyticsPageTitle";
 import { AnalyticsCumulativeTrendPage } from "./AnalyticsCumulativeTrendPage";
 import { AnalyticsIncrementalTrendPage } from "./AnalyticsIncrementalTrendPage";
 import { AppSidebar } from "./AppSidebar";
@@ -1294,6 +1295,36 @@ export default function App() {
 
   const kpi = visibleDashboard?.kpi;
 
+  const videoListTitleHints = useMemo((): AnalyticsPageHint[] => {
+    const hints: AnalyticsPageHint[] = [
+      "当 GitHub 每 2 小时定时采集失败时，可点此「立即采集」获取全部视频的当前播放数据。",
+    ];
+
+    if (import.meta.env.DEV) {
+      hints.push({
+        parts: [
+          { text: "本地开发会写入 " },
+          { text: "store.json", tone: "highlight" },
+          { text: "；线上版会触发 " },
+          { text: "GitHub Actions", tone: "highlight" },
+          { text: "。" },
+        ],
+      });
+    } else if (githubSyncReady) {
+      hints.push({
+        parts: [
+          { text: "采集后会触发 " },
+          { text: "GitHub Actions", tone: "highlight" },
+          { text: " 写入云端数据。" },
+        ],
+      });
+    } else {
+      hints.push("配置 GitHub 同步后可写入云端 store.json。");
+    }
+
+    return hints;
+  }, [githubSyncReady]);
+
   return (
     <div className="app">
       <div className="app-container">
@@ -1368,15 +1399,12 @@ export default function App() {
                 disabled={!selectedId || collecting || collectingAll}
                 title={
                   youtubeApiReady
-                    ? "直接请求 YouTube API 获取最新播放数据（本机快照）"
+                    ? "【立刻采集】：立刻获取该视频当前时刻的数据。"
                     : "需先配置 YouTube API Key"
                 }
               >
                 {collecting ? "采集中…" : "立刻采集"}
               </button>
-              <p className="detail-collect-hint">
-                【立刻采集】：立刻获取该视频当前时刻的数据。
-              </p>
               {!youtubeApiReady && selectedId && (
                 <p className="detail-collect-hint warn">
                   需先配置 YouTube API Key；GitHub Pages 线上版受 CORS 限制，请用本地 npm run dev。
@@ -1576,7 +1604,7 @@ export default function App() {
           {activePage === "videos" && (
           <section className="section app-page" id="panel-videos">
         <div className="section-head">
-          <h2>视频列表管理</h2>
+          <AnalyticsPageTitle title="视频列表管理" hints={videoListTitleHints} />
           <div className="section-head-actions">
             <button
               type="button"
@@ -1597,14 +1625,6 @@ export default function App() {
             </div>
           </div>
         </div>
-        <p className="detail-collect-hint">
-          当 GitHub 每 2 小时定时采集失败时，可点此手动采集全部视频的当前播放数据。
-          {import.meta.env.DEV
-            ? " 本地开发会写入 store.json；线上版会触发 GitHub Actions。"
-            : githubSyncReady
-              ? " 采集后会触发 GitHub Actions 写入云端数据。"
-              : " 配置 GitHub 同步后可写入云端 store.json。"}
-        </p>
         <div className="add-form">
           <input
             placeholder="粘贴 YouTube 链接或 11 位 Video ID"
@@ -1890,6 +1910,10 @@ export default function App() {
             <AnalyticsCumulativeTrendPage
               videos={videos}
               serverDetails={serverDetailsMap}
+              dateFrom={analyticsDateFrom}
+              dateTo={analyticsDateTo}
+              onDateFromChange={setAnalyticsDateFrom}
+              onDateToChange={setAnalyticsDateTo}
               theme={theme}
             />
           )}

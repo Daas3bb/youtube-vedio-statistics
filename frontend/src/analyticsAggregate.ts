@@ -225,6 +225,30 @@ export function cumulativeKpi(points: DailyTotalPoint[]) {
   };
 }
 
+export function summarizeCumulativeContributors(points: DailyTotalPoint[]) {
+  if (!points.length) return null;
+
+  const contributing = points.map((p) => p.contributing_videos);
+  return {
+    min: Math.min(...contributing),
+    max: Math.max(...contributing),
+    coldStartDays: points.filter((p) => p.first_snapshot_videos > 0),
+    dateFrom: points[0].day,
+    dateTo: points[points.length - 1].day,
+  };
+}
+
+export function summarizeIncrementalContributors(points: DailyIncrementalPoint[]) {
+  if (!points.length) return null;
+
+  const contributing = points.map((p) => p.contributing_videos);
+  return {
+    min: Math.min(...contributing),
+    max: Math.max(...contributing),
+    coldStartDays: points.filter((p) => p.snapshot_videos > p.contributing_videos),
+  };
+}
+
 export function incrementalKpi(points: DailyIncrementalPoint[]) {
   return {
     views: points.reduce((sum, p) => sum + p.delta_views, 0),

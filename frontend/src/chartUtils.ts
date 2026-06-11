@@ -181,3 +181,8 @@ export function analyticsTooltipFormatter(
 export function formatDayLabel(day: string): string {
   return day.length >= 10 ? day.slice(5) : day;
 }
+
+/** YYYY-MM-DD → YYYY/MM/DD，用于说明文案等完整日期展示 */
+export function formatAnalyticsFullDay(day: string): string {
+  return day.length >= 10 ? day.slice(0, 10).replace(/-/g, "/") : day;
+}

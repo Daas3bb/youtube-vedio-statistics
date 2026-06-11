@@ -5,6 +5,7 @@ import { Thumbnail } from "./Thumbnail";
 import { VideoSelect } from "./VideoSelect";
 import { enumerateDays } from "./analyticsAggregate";
 import {
+  ANOMALY_HINTS,
   ANOMALY_LABELS,
   buildSnapshotAnomalySummary,
   buildSnapshotDetailRows,
@@ -232,6 +233,7 @@ export function AnalyticsSnapshotDetail({
                         key={type}
                         type="button"
                         className={`analytics-anomaly-chip analytics-anomaly-chip-btn analytics-anomaly-${type}${summaryFilter === type ? " active" : ""}`}
+                        title={ANOMALY_HINTS[type]}
                         onClick={() => applySummaryFilter(type)}
                       >
                         {ANOMALY_LABELS[type]} {count}
@@ -521,7 +523,11 @@ function SnapshotRow({
         {hasAnomaly ? (
           <div className="analytics-anomaly-badges">
             {row.anomalies.map((type) => (
-              <span key={type} className={`analytics-anomaly-badge analytics-anomaly-${type}`}>
+              <span
+                key={type}
+                className={`analytics-anomaly-badge analytics-anomaly-${type}`}
+                title={ANOMALY_HINTS[type]}
+              >
                 {ANOMALY_LABELS[type]}
               </span>
             ))}

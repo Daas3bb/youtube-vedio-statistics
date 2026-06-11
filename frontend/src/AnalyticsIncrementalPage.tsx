@@ -63,19 +63,6 @@ export function IncrementalTrendSection({
 
   const kpi = useMemo(() => incrementalKpi(trendPoints), [trendPoints]);
 
-  const contributorSummary = useMemo(() => {
-    if (!trendPoints.length) return null;
-
-    const contributing = trendPoints.map((p) => p.contributing_videos);
-    const min = Math.min(...contributing);
-    const max = Math.max(...contributing);
-    const coldStartDays = trendPoints.filter(
-      (p) => p.snapshot_videos > p.contributing_videos
-    );
-
-    return { min, max, coldStartDays };
-  }, [trendPoints]);
-
   const metricValue = (point: DailyIncrementalPoint) =>
     metricMode === "views"
       ? point.delta_views
@@ -157,26 +144,13 @@ export function IncrementalTrendSection({
 
   return (
     <div className="analytics-trend-section">
-      {showHeader && <h3 className="analytics-section-title">增量数据趋势</h3>}
-      <p className="analytics-section-desc">
-        每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。悬停图表可查看每日贡献视频数。
-      </p>
-
-      {contributorSummary && (
-        <p className="analytics-incremental-cohort-hint">
-          贡献视频数（已监测 ≥2 天）：每日 {contributorSummary.min}–{contributorSummary.max} 个
-          {contributorSummary.coldStartDays.length > 0 && (
-            <>
-              {" · "}
-              {contributorSummary.coldStartDays.length} 天含首次采集视频
-              （
-              {contributorSummary.coldStartDays
-                .map((p) => formatDayLabel(p.day))
-                .join("、")}
-              ）
-            </>
-          )}
-        </p>
+      {showHeader && (
+        <>
+          <h3 className="analytics-section-title">增量数据趋势</h3>
+          <p className="analytics-section-desc">
+            每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。
+          </p>
+        </>
       )}
 
       {trendPoints.length > 0 && (

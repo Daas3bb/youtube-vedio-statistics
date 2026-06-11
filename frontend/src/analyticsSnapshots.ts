@@ -25,6 +25,12 @@ export const ANOMALY_LABELS: Record<SnapshotAnomalyType, string> = {
   extreme_delta: "极端增量",
 };
 
+/** 异常标签悬停说明（仅部分类型需要补充解释） */
+export const ANOMALY_HINTS: Partial<Record<SnapshotAnomalyType, string>> = {
+  cold_start:
+    "视频首次纳入监测的代表快照。该日仅作基线，不计入增量趋势；表中「新增播放」显示的是截至当日的累计播放量，非真实日增量。",
+};
+
 export interface SnapshotDetailRow {
   video_id: string;
   title: string;
