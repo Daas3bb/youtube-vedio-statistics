@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Video, VideoDetail } from "./api";
 import { AnalyticsKpiValue } from "./AnalyticsKpiValue";
 import { Thumbnail } from "./Thumbnail";
+import { VideoSelect } from "./VideoSelect";
 import { enumerateDays } from "./analyticsAggregate";
 import {
   ANOMALY_LABELS,
@@ -350,19 +351,16 @@ export function AnalyticsSnapshotDetail({
                 ))}
               </select>
             </label>
-            <label className="analytics-snapshot-refine-field">
+            <label className="analytics-snapshot-refine-field analytics-snapshot-refine-video">
               <span>筛选视频</span>
-              <select
+              <VideoSelect
+                videos={availableVideos}
                 value={filterVideoId}
-                onChange={(e) => setFilterVideoId(e.target.value)}
-              >
-                <option value="">全部视频</option>
-                {availableVideos.map((video) => (
-                  <option key={video.video_id} value={video.video_id}>
-                    {video.title}
-                  </option>
-                ))}
-              </select>
+                onChange={setFilterVideoId}
+                placeholder="全部视频"
+                emptyLabel="全部视频"
+                searchable
+              />
             </label>
             {hasRefineFilter && (
               <button
@@ -396,7 +394,9 @@ export function AnalyticsSnapshotDetail({
                       <th>播放量</th>
                       <th>点赞量</th>
                       <th>评论量</th>
-                      <th>增量播放</th>
+                      <th>新增播放</th>
+                      <th>新增点赞</th>
+                      <th>新增评论</th>
                       <th>状态</th>
                       <th className="col-actions">操作</th>
                     </tr>
@@ -501,6 +501,20 @@ function SnapshotRow({
           className={`analytics-snapshot-delta${row.delta_views < 0 ? " is-negative" : ""}`}
         >
           <AnalyticsKpiValue value={row.delta_views} />
+        </span>
+      </td>
+      <td>
+        <span
+          className={`analytics-snapshot-delta${row.delta_likes < 0 ? " is-negative" : ""}`}
+        >
+          <AnalyticsKpiValue value={row.delta_likes} />
+        </span>
+      </td>
+      <td>
+        <span
+          className={`analytics-snapshot-delta${row.delta_comments < 0 ? " is-negative" : ""}`}
+        >
+          <AnalyticsKpiValue value={row.delta_comments} />
         </span>
       </td>
       <td>

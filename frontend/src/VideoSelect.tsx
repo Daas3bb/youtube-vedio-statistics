@@ -7,6 +7,8 @@ interface VideoSelectProps {
   value: string;
   onChange: (videoId: string) => void;
   placeholder?: string;
+  /** When set, adds a first menu item that clears the selection (value ""). */
+  emptyLabel?: string;
   searchable?: boolean;
 }
 
@@ -25,6 +27,7 @@ export function VideoSelect({
   value,
   onChange,
   placeholder = "选择视频",
+  emptyLabel,
   searchable = false,
 }: VideoSelectProps) {
   const [open, setOpen] = useState(false);
@@ -109,6 +112,17 @@ export function VideoSelect({
 
       {open && (
         <ul className="video-select-menu" role="listbox">
+          {emptyLabel && (
+            <li role="option" aria-selected={!value}>
+              <button
+                type="button"
+                className={`video-select-option${!value ? " active" : ""}`}
+                onClick={() => pick("")}
+              >
+                <span className="video-select-placeholder">{emptyLabel}</span>
+              </button>
+            </li>
+          )}
           {filteredVideos.length ? (
             filteredVideos.map((video) => {
               const active = video.video_id === value;
