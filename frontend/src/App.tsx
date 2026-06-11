@@ -12,7 +12,8 @@ import {
   type VideoDetail,
 } from "./api";
 import { AnalyticsKpiValue } from "./AnalyticsKpiValue";
-import { AnalyticsTrendsPage } from "./AnalyticsTrendsPage";
+import { AnalyticsCumulativeTrendPage } from "./AnalyticsCumulativeTrendPage";
+import { AnalyticsIncrementalTrendPage } from "./AnalyticsIncrementalTrendPage";
 import { AppSidebar } from "./AppSidebar";
 import {
   loadAnalyticsDateFilter,
@@ -1885,8 +1886,16 @@ export default function App() {
           </section>
           )}
 
-          {activePage === "analytics-trends" && (
-            <AnalyticsTrendsPage
+          {activePage === "analytics-cumulative" && (
+            <AnalyticsCumulativeTrendPage
+              videos={videos}
+              serverDetails={serverDetailsMap}
+              theme={theme}
+            />
+          )}
+
+          {activePage === "analytics-incremental" && (
+            <AnalyticsIncrementalTrendPage
               videos={videos}
               serverDetails={serverDetailsMap}
               dateFrom={analyticsDateFrom}

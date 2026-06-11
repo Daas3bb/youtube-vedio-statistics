@@ -12,6 +12,7 @@ import {
   CHART_FONT_SIZE,
   CHART_GRID,
   formatAnalyticsCompact,
+  formatAnalyticsFull,
   formatDayLabel,
 } from "./chartUtils";
 import { readChartCssColors, type Theme } from "./theme";
@@ -46,6 +47,7 @@ interface CumulativeTrendSectionProps {
   dateTo: string;
   theme: Theme;
   hasAnyData: boolean;
+  showHeader?: boolean;
 }
 
 export function CumulativeTrendSection({
@@ -55,6 +57,7 @@ export function CumulativeTrendSection({
   dateTo,
   theme,
   hasAnyData,
+  showHeader = true,
 }: CumulativeTrendSectionProps) {
   const [metricMode, setMetricMode] = useState<MetricMode>("views");
 
@@ -78,8 +81,39 @@ export function CumulativeTrendSection({
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        formatter: (params: Parameters<typeof analyticsTooltipFormatter>[0]) =>
-          analyticsTooltipFormatter(params, metricMode),
+        renderMode: "html",
+        formatter: (params: Parameters<typeof analyticsTooltipFormatter>[0]) => {
+          const items = Array.isArray(params) ? params : [params];
+          const index = items[0]?.dataIndex;
+          const point =
+            typeof index === "number" && index >= 0 ? trendPoints[index] : undefined;
+          const prevPoint =
+            typeof index === "number" && index > 0 ? trendPoints[index - 1] : undefined;
+
+          let html = `日期：${String(items[0]?.name ?? "")}<br/>`;
+          for (const p of items) {
+            html += `${p.marker}${String(p.seriesName ?? "")}：${formatAnalyticsFull(Number(p.value))}<br/>`;
+          }
+
+          if (point) {
+            html += `贡献视频：${point.contributing_videos} 个`;
+
+            if (prevPoint) {
+              const delta = point.contributing_videos - prevPoint.contributing_videos;
+              if (delta > 0) {
+                html += `<br/><span style="color:${chartColors.success};font-weight:600;">较昨日新增 ${delta} 个</span>`;
+              } else if (delta < 0) {
+                html += `<br/><span style="color:${chartColors.danger};font-weight:600;">较昨日减少 ${Math.abs(delta)} 个</span>`;
+              }
+            }
+
+            if (point.first_snapshot_videos > 0) {
+              html += `<br/><span style="color:${chartColors.warning};font-weight:600;">${point.first_snapshot_videos} 个视频首次采集</span>`;
+            }
+          }
+
+          return html;
+        },
       },
       legend: {
         data: [config.seriesName],
@@ -122,10 +156,14 @@ export function CumulativeTrendSection({
 
   return (
     <div className="analytics-trend-section">
-      <h3 className="analytics-section-title">累计数据趋势</h3>
-      <p className="analytics-section-desc">
-        每日汇总各视频当日快照的播放量、点赞量、评论量累计总和。
-      </p>
+      {showHeader && (
+        <>
+          <h3 className="analytics-section-title">累计数据趋势</h3>
+          <p className="analytics-section-desc">
+            每日汇总各视频当日快照的播放量、点赞量、评论量累计总和。
+          </p>
+        </>
+      )}
 
       {kpi && (
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
@@ -164,7 +202,7 @@ export function CumulativeTrendSection({
           {trendPoints.length ? (
             <LazyChart option={chartOption} style={{ height: "100%" }} />
           ) : hasAnyData ? (
-            <p className="empty">所选日期范围内暂无快照数据</p>
+            <p className="empty">暂无快照数据</p>
           ) : (
             <p className="empty">暂无监测视频，请先在视频管理中添加视频</p>
           )}

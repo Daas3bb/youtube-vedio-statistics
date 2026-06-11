@@ -36,12 +36,21 @@ export function toggleTheme(current: Theme): Theme {
   return next;
 }
 
-export function readChartCssColors(): { muted: string; grid: string } {
+export function readChartCssColors(): {
+  muted: string;
+  grid: string;
+  warning: string;
+  success: string;
+  danger: string;
+} {
   const styles = getComputedStyle(document.documentElement);
   const pick = (name: string, fallback: string) =>
     styles.getPropertyValue(name).trim() || fallback;
   return {
     muted: pick("--chart-muted", "#8b9cb3"),
     grid: pick("--chart-grid", "#2d3a4f"),
+    warning: pick("--warning", "#f59e0b"),
+    success: pick("--success", "#22c55e"),
+    danger: pick("--danger-text", "#ff7b7b"),
   };
 }

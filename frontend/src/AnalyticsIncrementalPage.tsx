@@ -42,6 +42,7 @@ interface IncrementalTrendSectionProps {
   dateTo: string;
   theme: Theme;
   hasAnyData: boolean;
+  showHeader?: boolean;
 }
 
 export function IncrementalTrendSection({
@@ -51,16 +52,13 @@ export function IncrementalTrendSection({
   dateTo,
   theme,
   hasAnyData,
+  showHeader = true,
 }: IncrementalTrendSectionProps) {
   const [metricMode, setMetricMode] = useState<MetricMode>("views");
-  const [establishedOnly, setEstablishedOnly] = useState(false);
 
   const trendPoints = useMemo(
-    () =>
-      aggregateIncrementalTrend(videos, serverDetails, dateFrom, dateTo, {
-        establishedOnly,
-      }),
-    [videos, serverDetails, dateFrom, dateTo, establishedOnly]
+    () => aggregateIncrementalTrend(videos, serverDetails, dateFrom, dateTo),
+    [videos, serverDetails, dateFrom, dateTo]
   );
 
   const kpi = useMemo(() => incrementalKpi(trendPoints), [trendPoints]);
@@ -96,6 +94,7 @@ export function IncrementalTrendSection({
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
+        renderMode: "html",
         formatter: (params: Parameters<typeof analyticsTooltipFormatter>[0]) => {
           const items = Array.isArray(params) ? params : [params];
           const index = items[0]?.dataIndex;
@@ -107,8 +106,9 @@ export function IncrementalTrendSection({
           }
           if (point) {
             html += `贡献视频：${point.contributing_videos} 个`;
-            if (point.snapshot_videos > point.contributing_videos) {
-              html += `（${point.snapshot_videos - point.contributing_videos} 个首次采集）`;
+            const coldStartCount = point.snapshot_videos - point.contributing_videos;
+            if (coldStartCount > 0) {
+              html += `<br/><span style="color:${chartColors.warning};font-weight:600;">${coldStartCount} 个视频首次采集</span>`;
             }
           }
           return html;
@@ -157,7 +157,7 @@ export function IncrementalTrendSection({
 
   return (
     <div className="analytics-trend-section">
-      <h3 className="analytics-section-title">增量数据趋势</h3>
+      {showHeader && <h3 className="analytics-section-title">增量数据趋势</h3>}
       <p className="analytics-section-desc">
         每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。悬停图表可查看每日贡献视频数。
       </p>
@@ -199,27 +199,17 @@ export function IncrementalTrendSection({
       <div className="detail-chart-block">
         <div className="detail-chart-head">
           <h4>增量趋势</h4>
-          <div className="analytics-incremental-chart-controls">
-            <div className="detail-chart-toggle">
-              {(Object.keys(METRIC_CONFIG) as MetricMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={`btn detail-chart-toggle-btn${metricMode === mode ? " active" : ""}`}
-                  onClick={() => setMetricMode(mode)}
-                >
-                  {METRIC_CONFIG[mode].seriesName}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className={`btn detail-chart-toggle-btn analytics-established-toggle${establishedOnly ? " active" : ""}`}
-              onClick={() => setEstablishedOnly((value) => !value)}
-              title="开启后仅统计已有前序代表快照的视频（与各视频首次采集日排除逻辑一致）"
-            >
-              仅稳定监测视频
-            </button>
+          <div className="detail-chart-toggle">
+            {(Object.keys(METRIC_CONFIG) as MetricMode[]).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={`btn detail-chart-toggle-btn${metricMode === mode ? " active" : ""}`}
+                onClick={() => setMetricMode(mode)}
+              >
+                {METRIC_CONFIG[mode].seriesName}
+              </button>
+            ))}
           </div>
         </div>
         <div className="chart-box">

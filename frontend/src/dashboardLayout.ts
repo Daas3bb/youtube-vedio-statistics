@@ -1,13 +1,19 @@
 export type NavGroupId = "content" | "analytics";
 
-export type PanelId = "detail" | "videos" | "analytics-trends" | "rankings";
+export type PanelId =
+  | "detail"
+  | "videos"
+  | "analytics-cumulative"
+  | "analytics-incremental"
+  | "rankings";
 
 export const DEFAULT_PAGE: PanelId = "detail";
 
 const PAGE_LABELS: Record<PanelId, string> = {
   videos: "视频管理",
   detail: "单视频详情",
-  "analytics-trends": "总体趋势",
+  "analytics-cumulative": "累计数据趋势",
+  "analytics-incremental": "增量数据趋势",
   rankings: "排行榜",
 };
 
@@ -26,7 +32,7 @@ export const NAV_MENU_GROUPS: NavMenuGroup[] = [
   {
     id: "analytics",
     label: "数据分析",
-    items: ["analytics-trends", "rankings"],
+    items: ["analytics-cumulative", "analytics-incremental", "rankings"],
   },
 ];
 
@@ -54,16 +60,17 @@ export function pageFromHash(hash = window.location.hash): PanelId {
   const path = hash.replace(/^#\/?/, "").split("?")[0];
   if (path === "videos") return "videos";
   if (path === "rankings") return "rankings";
-  if (path === "analytics/trends") return "analytics-trends";
-  if (path === "analytics/cumulative" || path === "analytics/incremental") {
-    return "analytics-trends";
+  if (path === "analytics/trends" || path === "analytics/incremental") {
+    return "analytics-incremental";
   }
+  if (path === "analytics/cumulative") return "analytics-cumulative";
   return DEFAULT_PAGE;
 }
 
 export function hashFromPage(page: PanelId): string {
   if (page === DEFAULT_PAGE) return "#/";
-  if (page === "analytics-trends") return "#/analytics/trends";
+  if (page === "analytics-cumulative") return "#/analytics/cumulative";
+  if (page === "analytics-incremental") return "#/analytics/incremental";
   return `#/${page}`;
 }
 

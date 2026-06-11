@@ -2,12 +2,11 @@ import { useMemo } from "react";
 import type { Video, VideoDetail } from "./api";
 import { AnalyticsDateFilter } from "./AnalyticsDateFilter";
 import { availableAnalyticsDateRange } from "./analyticsAggregate";
-import { CumulativeTrendSection } from "./AnalyticsCumulativePage";
 import { IncrementalTrendSection } from "./AnalyticsIncrementalPage";
 import { AnalyticsSnapshotDetail } from "./AnalyticsSnapshotDetail";
 import type { Theme } from "./theme";
 
-interface AnalyticsTrendsPageProps {
+interface AnalyticsIncrementalTrendPageProps {
   videos: Video[];
   serverDetails: Record<string, VideoDetail | null | undefined>;
   dateFrom: string;
@@ -18,7 +17,7 @@ interface AnalyticsTrendsPageProps {
   theme: Theme;
 }
 
-export function AnalyticsTrendsPage({
+export function AnalyticsIncrementalTrendPage({
   videos,
   serverDetails,
   dateFrom,
@@ -27,7 +26,7 @@ export function AnalyticsTrendsPage({
   onDateToChange,
   onOpenVideoDetail,
   theme,
-}: AnalyticsTrendsPageProps) {
+}: AnalyticsIncrementalTrendPageProps) {
   const dateBounds = useMemo(
     () => availableAnalyticsDateRange(videos, serverDetails),
     [videos, serverDetails]
@@ -36,10 +35,10 @@ export function AnalyticsTrendsPage({
   const hasAnyData = videos.length > 0 && Boolean(dateBounds.min || dateBounds.max);
 
   return (
-    <section className="section app-page" id="panel-analytics-trends">
-      <h2>总体趋势</h2>
+    <section className="section app-page" id="panel-analytics-incremental">
+      <h2>增量数据趋势</h2>
       <p className="analytics-page-desc">
-        汇总全部监测视频的累计与增量数据趋势，支持按日期区间筛选并切换播放、点赞、评论指标。
+        按日期区间汇总全部监测视频的每日新增播放、点赞、评论，并查看快照明细与异常检测。
       </p>
 
       <AnalyticsDateFilter
@@ -52,24 +51,15 @@ export function AnalyticsTrendsPage({
         onToChange={onDateToChange}
       />
 
-      <div className="analytics-trends-sections">
-        <CumulativeTrendSection
-          videos={videos}
-          serverDetails={serverDetails}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          theme={theme}
-          hasAnyData={hasAnyData}
-        />
-        <IncrementalTrendSection
-          videos={videos}
-          serverDetails={serverDetails}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          theme={theme}
-          hasAnyData={hasAnyData}
-        />
-      </div>
+      <IncrementalTrendSection
+        videos={videos}
+        serverDetails={serverDetails}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        theme={theme}
+        hasAnyData={hasAnyData}
+        showHeader={false}
+      />
 
       <AnalyticsSnapshotDetail
         videos={videos}
