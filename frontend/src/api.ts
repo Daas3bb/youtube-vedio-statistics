@@ -108,6 +108,11 @@ export async function fetchVideoDetail(videoId: string) {
   return detail;
 }
 
+export async function fetchAllDetails(): Promise<Record<string, VideoDetail>> {
+  const site = await loadSite();
+  return site.details ?? {};
+}
+
 export function clearSiteCache() {
   cachedSite = null;
 }

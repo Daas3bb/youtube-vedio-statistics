@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import {
   clearSiteCache,
+  fetchAllDetails,
   fetchDashboard,
   fetchHealth,
   fetchVideoDetail,
@@ -10,6 +11,13 @@ import {
   type Video,
   type VideoDetail,
 } from "./api";
+import { AnalyticsKpiValue } from "./AnalyticsKpiValue";
+import { AnalyticsTrendsPage } from "./AnalyticsTrendsPage";
+import { AppSidebar } from "./AppSidebar";
+import {
+  loadAnalyticsDateFilter,
+  saveAnalyticsDateFilter,
+} from "./analyticsFilter";
 import { Thumbnail } from "./Thumbnail";
 import { matchVideo, VideoSelect } from "./VideoSelect";
 import {
@@ -59,7 +67,6 @@ import {
   loadVideoListPageSize,
   navigateToPage,
   pageFromHash,
-  pageLabel,
   saveVideoListPageSize,
   type PanelId,
 } from "./dashboardLayout";
@@ -241,6 +248,10 @@ export default function App() {
   const [rankListPage, setRankListPage] = useState(1);
   const [rankListJumpInput, setRankListJumpInput] = useState("");
   const [activePage, setActivePage] = useState<PanelId>(() => pageFromHash());
+  const initialAnalyticsDates = loadAnalyticsDateFilter();
+  const [analyticsDateFrom, setAnalyticsDateFrom] = useState(initialAnalyticsDates.from);
+  const [analyticsDateTo, setAnalyticsDateTo] = useState(initialAnalyticsDates.to);
+  const [serverDetailsMap, setServerDetailsMap] = useState<Record<string, VideoDetail>>({});
   const serverDetailRef = useRef<Record<string, VideoDetail | null>>({});
   const lastSelectedIdRef = useRef("");
   const actionsPanelRef = useRef<GithubActionsPanelHandle>(null);
@@ -343,10 +354,11 @@ export default function App() {
     setLoading(true);
     clearSiteCache();
     try {
-      const [health, vList, dash] = await Promise.all([
+      const [health, vList, dash, allDetails] = await Promise.all([
         fetchHealth(),
         fetchVideos(),
         fetchDashboard(),
+        fetchAllDetails(),
       ]);
       setGeneratedAt(health.generated_at || "");
       const list = Array.isArray(vList) ? vList : [];
@@ -397,6 +409,8 @@ export default function App() {
         dashData = applyDeletionToDashboard(dashData, hiddenIds);
       }
       setDashboard(dashData);
+      setServerDetailsMap(allDetails ?? {});
+      serverDetailRef.current = allDetails ?? {};
       const visible = mergeVideos(list, loadLocalVideos()).filter(
         (v) => !loadHiddenVideoIds().has(v.video_id)
       );
@@ -962,6 +976,10 @@ export default function App() {
   }, [detailDateFrom, detailDateTo]);
 
   useEffect(() => {
+    saveAnalyticsDateFilter(analyticsDateFrom, analyticsDateTo);
+  }, [analyticsDateFrom, analyticsDateTo]);
+
+  useEffect(() => {
     if (!selectedId && videosSortedByNewest.length) {
       setSelectedId(videosSortedByNewest[0].video_id);
     }
@@ -1328,26 +1346,12 @@ export default function App() {
       </div>
 
       <div className="app-layout">
-        <aside className="app-sidebar">
-          <nav className="app-sidebar-nav" aria-label="主导航">
-            {(["detail", "videos", "rankings"] as PanelId[]).map((page) => (
-              <button
-                key={page}
-                type="button"
-                className={`app-nav-item${activePage === page ? " active" : ""}`}
-                aria-current={activePage === page ? "page" : undefined}
-                onClick={() => handleNavigate(page)}
-              >
-                {pageLabel(page)}
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <AppSidebar activePage={activePage} onNavigate={handleNavigate} />
 
         <main className="app-main">
           {activePage === "detail" && (
           <section className="section app-page" id="panel-detail">
-          <h2>视频详情</h2>
+          <h2>单视频详情</h2>
           <div className="detail-select">
             <VideoSelect
               videos={videos}
@@ -1488,30 +1492,36 @@ export default function App() {
                 <div className="label">
                   {showCurrentDetailKpi ? "当前播放" : "新增播放"}
                 </div>
-                <div className="value">
-                  {showCurrentDetailKpi
-                    ? formatNum(detailRangeKpi.view_count)
-                    : formatDeltaNum(detailRangeKpi.delta_views)}
-                </div>
+                <AnalyticsKpiValue
+                  value={
+                    showCurrentDetailKpi
+                      ? detailRangeKpi.view_count
+                      : detailRangeKpi.delta_views
+                  }
+                />
                 {showCurrentDetailKpi && detailRangeKpi.snapshot_time && (
                   <div className="kpi-sub">{detailRangeKpi.snapshot_time.slice(5, 16)}</div>
                 )}
               </div>
               <div className="kpi-card">
                 <div className="label">{showCurrentDetailKpi ? "当前点赞" : "新增点赞"}</div>
-                <div className="value">
-                  {showCurrentDetailKpi
-                    ? formatNum(detailRangeKpi.like_count)
-                    : formatDeltaNum(detailRangeKpi.delta_likes)}
-                </div>
+                <AnalyticsKpiValue
+                  value={
+                    showCurrentDetailKpi
+                      ? detailRangeKpi.like_count
+                      : detailRangeKpi.delta_likes
+                  }
+                />
               </div>
               <div className="kpi-card">
                 <div className="label">{showCurrentDetailKpi ? "当前评论" : "新增评论"}</div>
-                <div className="value">
-                  {showCurrentDetailKpi
-                    ? formatNum(detailRangeKpi.comment_count)
-                    : formatDeltaNum(detailRangeKpi.delta_comments)}
-                </div>
+                <AnalyticsKpiValue
+                  value={
+                    showCurrentDetailKpi
+                      ? detailRangeKpi.comment_count
+                      : detailRangeKpi.delta_comments
+                  }
+                />
               </div>
             </div>
           )}
@@ -1875,10 +1885,23 @@ export default function App() {
           </section>
           )}
 
+          {activePage === "analytics-trends" && (
+            <AnalyticsTrendsPage
+              videos={videos}
+              serverDetails={serverDetailsMap}
+              dateFrom={analyticsDateFrom}
+              dateTo={analyticsDateTo}
+              onDateFromChange={setAnalyticsDateFrom}
+              onDateToChange={setAnalyticsDateTo}
+              onOpenVideoDetail={openVideoDetail}
+              theme={theme}
+            />
+          )}
+
           {activePage === "rankings" && (
           <section className="section app-page" id="panel-rankings">
         <div className="section-head">
-          <h2>播放量排行榜</h2>
+          <h2>排行榜</h2>
           <div className="rank-sort-bar">
             <span className="rank-sort-label">排序</span>
             <button

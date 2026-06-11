@@ -76,6 +76,16 @@ function mergeHistory(server: HistoryPoint[], local: HistoryPoint[]): HistoryPoi
   return [...map.values()].sort((a, b) => a.time.localeCompare(b.time));
 }
 
+/** 合并服务端与本地快照，不做累计值修正（供明细核查） */
+export function buildRawMergedHistory(
+  videoId: string,
+  serverDetail: VideoDetail | null
+): HistoryPoint[] {
+  const serverHistory = serverDetail?.history ?? [];
+  const localHistory = toHistoryPoints(getLocalSnapshots(videoId));
+  return mergeHistory(serverHistory, localHistory);
+}
+
 export function buildMergedDetail(
   videoId: string,
   serverDetail: VideoDetail | null,
