@@ -3,6 +3,7 @@ import type { Video, VideoDetail } from "./api";
 import {
   aggregateIncrementalTrend,
   incrementalKpi,
+  type DailyIncrementalPoint,
 } from "./analyticsAggregate";
 import { LazyChart } from "./LazyChart";
 import { AnalyticsKpiValue } from "./AnalyticsKpiValue";
@@ -12,6 +13,7 @@ import {
   CHART_FONT_SIZE,
   CHART_GRID,
   formatAnalyticsCompact,
+  formatAnalyticsFull,
   formatDayLabel,
 } from "./chartUtils";
 import { readChartCssColors, type Theme } from "./theme";
@@ -51,33 +53,66 @@ export function IncrementalTrendSection({
   hasAnyData,
 }: IncrementalTrendSectionProps) {
   const [metricMode, setMetricMode] = useState<MetricMode>("views");
+  const [establishedOnly, setEstablishedOnly] = useState(false);
 
   const trendPoints = useMemo(
-    () => aggregateIncrementalTrend(videos, serverDetails, dateFrom, dateTo),
-    [videos, serverDetails, dateFrom, dateTo]
+    () =>
+      aggregateIncrementalTrend(videos, serverDetails, dateFrom, dateTo, {
+        establishedOnly,
+      }),
+    [videos, serverDetails, dateFrom, dateTo, establishedOnly]
   );
 
   const kpi = useMemo(() => incrementalKpi(trendPoints), [trendPoints]);
+
+  const contributorSummary = useMemo(() => {
+    if (!trendPoints.length) return null;
+
+    const contributing = trendPoints.map((p) => p.contributing_videos);
+    const min = Math.min(...contributing);
+    const max = Math.max(...contributing);
+    const coldStartDays = trendPoints.filter(
+      (p) => p.snapshot_videos > p.contributing_videos
+    );
+
+    return { min, max, coldStartDays };
+  }, [trendPoints]);
+
+  const metricValue = (point: DailyIncrementalPoint) =>
+    metricMode === "views"
+      ? point.delta_views
+      : metricMode === "likes"
+        ? point.delta_likes
+        : point.delta_comments;
 
   const chartOption = useMemo(() => {
     if (!trendPoints.length) return {};
     const chartColors = readChartCssColors();
     const config = METRIC_CONFIG[metricMode];
-    const values = trendPoints.map((p) =>
-      metricMode === "views"
-        ? p.delta_views
-        : metricMode === "likes"
-          ? p.delta_likes
-          : p.delta_comments
-    );
+    const values = trendPoints.map(metricValue);
     const { useScale, ...axis } = analyticsTrendAxisBounds(values, "incremental");
 
     return {
       backgroundColor: "transparent",
       tooltip: {
         trigger: "axis",
-        formatter: (params: Parameters<typeof analyticsTooltipFormatter>[0]) =>
-          analyticsTooltipFormatter(params, metricMode, true),
+        formatter: (params: Parameters<typeof analyticsTooltipFormatter>[0]) => {
+          const items = Array.isArray(params) ? params : [params];
+          const index = items[0]?.dataIndex;
+          const point =
+            typeof index === "number" && index >= 0 ? trendPoints[index] : undefined;
+          let html = `日期：${String(items[0]?.name ?? "")}<br/>`;
+          for (const p of items) {
+            html += `${p.marker}${String(p.seriesName ?? "")}：${formatAnalyticsFull(Number(p.value))}<br/>`;
+          }
+          if (point) {
+            html += `贡献视频：${point.contributing_videos} 个`;
+            if (point.snapshot_videos > point.contributing_videos) {
+              html += `（${point.snapshot_videos - point.contributing_videos} 个首次采集）`;
+            }
+          }
+          return html;
+        },
       },
       legend: {
         data: [config.seriesName],
@@ -124,8 +159,25 @@ export function IncrementalTrendSection({
     <div className="analytics-trend-section">
       <h3 className="analytics-section-title">增量数据趋势</h3>
       <p className="analytics-section-desc">
-        每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。上方 KPI 为所选日期范围内每日新增之和。
+        每个视频每个自然日取一条代表快照，计算相对上一条代表快照的新增播放/点赞/评论后按日汇总；视频首次采集日仅作基线不计入增量。悬停图表可查看每日贡献视频数。
       </p>
+
+      {contributorSummary && (
+        <p className="analytics-incremental-cohort-hint">
+          贡献视频数（已监测 ≥2 天）：每日 {contributorSummary.min}–{contributorSummary.max} 个
+          {contributorSummary.coldStartDays.length > 0 && (
+            <>
+              {" · "}
+              {contributorSummary.coldStartDays.length} 天含首次采集视频
+              （
+              {contributorSummary.coldStartDays
+                .map((p) => formatDayLabel(p.day))
+                .join("、")}
+              ）
+            </>
+          )}
+        </p>
+      )}
 
       {trendPoints.length > 0 && (
         <div className="kpi-grid" style={{ marginBottom: 16 }}>
@@ -147,17 +199,27 @@ export function IncrementalTrendSection({
       <div className="detail-chart-block">
         <div className="detail-chart-head">
           <h4>增量趋势</h4>
-          <div className="detail-chart-toggle">
-            {(Object.keys(METRIC_CONFIG) as MetricMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={`btn detail-chart-toggle-btn${metricMode === mode ? " active" : ""}`}
-                onClick={() => setMetricMode(mode)}
-              >
-                {METRIC_CONFIG[mode].seriesName}
-              </button>
-            ))}
+          <div className="analytics-incremental-chart-controls">
+            <div className="detail-chart-toggle">
+              {(Object.keys(METRIC_CONFIG) as MetricMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`btn detail-chart-toggle-btn${metricMode === mode ? " active" : ""}`}
+                  onClick={() => setMetricMode(mode)}
+                >
+                  {METRIC_CONFIG[mode].seriesName}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={`btn detail-chart-toggle-btn analytics-established-toggle${establishedOnly ? " active" : ""}`}
+              onClick={() => setEstablishedOnly((value) => !value)}
+              title="开启后仅统计已有前序代表快照的视频（与各视频首次采集日排除逻辑一致）"
+            >
+              仅稳定监测视频
+            </button>
           </div>
         </div>
         <div className="chart-box">

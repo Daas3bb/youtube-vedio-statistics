@@ -19,6 +19,22 @@ export interface DailyIncrementalPoint {
   delta_views: number;
   delta_likes: number;
   delta_comments: number;
+  /** 当日有代表快照的视频数 */
+  snapshot_videos: number;
+  /** 当日有有效增量（已监测 ≥2 天）的视频数 */
+  contributing_videos: number;
+}
+
+export interface AggregateIncrementalOptions {
+  /** 仅汇总已有前序代表快照的视频（排除各视频首次采集日） */
+  establishedOnly?: boolean;
+}
+
+interface VideoDayIncrement {
+  delta_views: number;
+  delta_likes: number;
+  delta_comments: number;
+  is_established: boolean;
 }
 
 function parseDay(day: string): number {
@@ -115,12 +131,9 @@ function videoDailyIncrements(
   history: HistoryPoint[],
   from: string,
   to: string
-): Map<string, Pick<DailyIncrementalPoint, "delta_views" | "delta_likes" | "delta_comments">> {
+): Map<string, VideoDayIncrement> {
   const daily = collapseDailySnapshots(normalizeCumulativeHistory(history));
-  const increments = new Map<
-    string,
-    Pick<DailyIncrementalPoint, "delta_views" | "delta_likes" | "delta_comments">
-  >();
+  const increments = new Map<string, VideoDayIncrement>();
 
   for (let i = 0; i < daily.length; i++) {
     const point = daily[i];
@@ -128,11 +141,13 @@ function videoDailyIncrements(
     if (!day || day < from || day > to) continue;
 
     const prev = i > 0 ? daily[i - 1] : null;
+    const is_established = Boolean(prev);
     // 首次代表快照仅建立基线，不计入增量（避免批量首次采集日虚高）
     increments.set(day, {
-      delta_views: prev ? point.views - prev.views : 0,
-      delta_likes: prev ? point.likes - prev.likes : 0,
-      delta_comments: prev ? point.comments - prev.comments : 0,
+      delta_views: is_established ? point.views - prev!.views : 0,
+      delta_likes: is_established ? point.likes - prev!.likes : 0,
+      delta_comments: is_established ? point.comments - prev!.comments : 0,
+      is_established,
     });
   }
 
@@ -143,19 +158,39 @@ export function aggregateIncrementalTrend(
   videos: Video[],
   serverDetails: Record<string, VideoDetail | null | undefined>,
   from: string,
-  to: string
+  to: string,
+  options: AggregateIncrementalOptions = {}
 ): DailyIncrementalPoint[] {
+  const { establishedOnly = false } = options;
   const days = enumerateDays(from, to);
   if (!days.length) return [];
 
   const totals = new Map<string, DailyIncrementalPoint>(
-    days.map((day) => [day, { day, delta_views: 0, delta_likes: 0, delta_comments: 0 }])
+    days.map((day) => [
+      day,
+      {
+        day,
+        delta_views: 0,
+        delta_likes: 0,
+        delta_comments: 0,
+        snapshot_videos: 0,
+        contributing_videos: 0,
+      },
+    ])
   );
 
   for (const detail of buildMergedDetails(videos, serverDetails)) {
     for (const [day, delta] of videoDailyIncrements(detail.history, from, to)) {
       const row = totals.get(day);
       if (!row) continue;
+
+      row.snapshot_videos += 1;
+      if (delta.is_established) {
+        row.contributing_videos += 1;
+      }
+
+      if (establishedOnly && !delta.is_established) continue;
+
       row.delta_views += delta.delta_views;
       row.delta_likes += delta.delta_likes;
       row.delta_comments += delta.delta_comments;
