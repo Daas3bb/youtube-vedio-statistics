@@ -379,6 +379,16 @@
       "channel_title": "Stan Wilkins",
       "status": "active",
       "created_at": "2026-07-29 08:36:04"
+    },
+    {
+      "video_id": "RoATfjBBYaI",
+      "title": "The Nicest & Most Affordable DIY Cable Railing System",
+      "video_url": "https://www.youtube.com/watch?v=RoATfjBBYaI",
+      "thumbnail_url": "https://i.ytimg.com/vi/RoATfjBBYaI/mqdefault.jpg",
+      "publish_time": "2026-07-19",
+      "channel_title": "Dale Does It All",
+      "status": "active",
+      "created_at": "2026-07-29 08:47:19"
     }
   ],
   "history": [
@@ -135849,6 +135859,15 @@
       "like_count": "2391",
       "comment_count": "178",
       "created_at": "2026-07-29 08:36:44"
+    },
+    {
+      "video_id": "RoATfjBBYaI",
+      "snapshot_time": "2026-07-29 08:47:51",
+      "snapshot_bucket": "2026-07-29 08:00:00",
+      "view_count": "260",
+      "like_count": "6",
+      "comment_count": "9",
+      "created_at": "2026-07-29 08:47:51"
     }
   ]
 }
